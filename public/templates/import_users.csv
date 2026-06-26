@@ -1,0 +1,4 @@
+﻿ФИО;Email;Роль;Код привязки;Пароль
+Администратор Системы;admin2@example.ru;admin;;changeme123
+Иванов Иван Иванович;coordinator2@example.ru;municipal_coordinator;10;changeme123
+Сидоров Пётр Петрович;operator2@example.ru;school_operator;100001;changeme123

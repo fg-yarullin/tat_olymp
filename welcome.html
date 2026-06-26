@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>РИСПО РТ – Региональная информационная система предметных олимпиад</title>
+    <!-- Font Awesome для иконок -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            background: #f4f7fc;
+            color: #1e2a4a;
+            line-height: 1.6;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* === Шапка === */
+        .header {
+            background: #1a2a4a;
+            color: #fff;
+            padding: 15px 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-icon {
+            font-size: 2.4rem;
+            color: #f5b041;
+        }
+
+        .logo-text {
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .logo-text small {
+            font-weight: 400;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            display: block;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .header-actions a {
+            background: rgba(255,255,255,0.12);
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid transparent;
+        }
+
+        .header-actions a:hover {
+            background: #f5b041;
+            color: #1a2a4a;
+            border-color: #f5b041;
+        }
+
+        .header-actions a i {
+            font-size: 1.1rem;
+        }
+
+        /* === Заголовок с полным названием === */
+        .hero {
+            background: linear-gradient(135deg, #e8edf5 0%, #d5ddee 100%);
+            padding: 40px 0 30px;
+            text-align: center;
+            border-bottom: 4px solid #f5b041;
+        }
+
+        .hero h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #0f1a2f;
+        }
+
+        .hero h1 span {
+            color: #f5b041;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: #2c3e6b;
+            margin-top: 8px;
+            letter-spacing: 0.3px;
+        }
+
+        /* === Основной контент === */
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            padding: 40px 0;
+        }
+
+        /* Блок новостей */
+        .news-section h2 {
+            font-size: 1.8rem;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 3px solid #f5b041;
+            padding-bottom: 10px;
+        }
+
+        .news-section h2 i {
+            color: #f5b041;
+        }
+
+        .news-card {
+            background: #fff;
+            border-radius: 14px;
+            padding: 20px 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+            transition: 0.2s;
+            border-left: 5px solid #1a2a4a;
+            display: flex;
+            gap: 18px;
+            align-items: flex-start;
+        }
+
+        .news-card:hover {
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+            transform: translateY(-2px);
+        }
+
+        .news-icon {
+            font-size: 2rem;
+            color: #f5b041;
+            flex-shrink: 0;
+            margin-top: 5px;
+        }
+
+        .news-body {
+            flex: 1;
+        }
+
+        .news-date {
+            font-size: 0.85rem;
+            color: #6c7a92;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 5px;
+        }
+
+        .news-body h3 {
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+
+        .news-body p {
+            color: #3d4a62;
+            font-size: 0.95rem;
+        }
+
+        .news-body a {
+            color: #1a2a4a;
+            font-weight: 600;
+            display: inline-block;
+            margin-top: 8px;
+        }
+
+        .news-body a:hover {
+            color: #f5b041;
+        }
+
+        /* Информационная колонка */
+        .info-sidebar h2 {
+            font-size: 1.8rem;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 3px solid #f5b041;
+            padding-bottom: 10px;
+        }
+
+        .widget {
+            background: #fff;
+            border-radius: 14px;
+            padding: 20px 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+        }
+
+        .widget h3 {
+            font-size: 1.25rem;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .widget h3 i {
+            color: #f5b041;
+        }
+
+        .widget ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .widget ul li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eef2f7;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .widget ul li:last-child {
+            border-bottom: none;
+        }
+
+        .widget ul li i {
+            color: #1a2a4a;
+            width: 20px;
+        }
+
+        .widget ul li a {
+            color: #1a2a4a;
+            font-weight: 500;
+        }
+
+        .widget ul li a:hover {
+            color: #f5b041;
+        }
+
+        .resource-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .resource-item {
+            background: #f4f7fc;
+            padding: 12px 8px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 500;
+            transition: 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .resource-item i {
+            font-size: 1.8rem;
+            color: #1a2a4a;
+        }
+
+        .resource-item:hover {
+            background: #e2e8f0;
+            transform: scale(1.02);
+        }
+
+        /* === Футер === */
+        .footer {
+            background: #1a2a4a;
+            color: #bcc6d8;
+            padding: 30px 0;
+            margin-top: 20px;
+        }
+
+        .footer .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .footer a {
+            color: #f5b041;
+            font-weight: 500;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .footer .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .footer .footer-logo i {
+            font-size: 1.8rem;
+            color: #f5b041;
+        }
+
+        /* === Адаптивность === */
+        @media (max-width: 992px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .header .container {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+            }
+
+            .header-actions {
+                justify-content: center;
+            }
+
+            .hero h1 {
+                font-size: 1.6rem;
+            }
+
+            .resource-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .news-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-actions a {
+                font-size: 0.8rem;
+                padding: 8px 14px;
+            }
+
+            .logo-text {
+                font-size: 1.2rem;
+            }
+
+            .hero h1 {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Шапка -->
+    <header class="header">
+        <div class="container">
+            <div class="logo-area">
+                <i class="fas fa-graduation-cap logo-icon"></i>
+                <div class="logo-text">
+                    РИСПО РТ
+                    <small>Региональная информационная система</small>
+                </div>
+            </div>
+            <div class="header-actions">
+                <a href="#"><i class="fas fa-user-lock"></i> Вход для сотрудников</a>
+                <a href="#"><i class="fas fa-eye"></i> Онлайн-показ работ</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Полное название -->
+    <section class="hero">
+        <div class="container">
+            <h1>Региональная информационная система <span>предметных олимпиад</span> Республики Татарстан</h1>
+            <p><i class="fas fa-trophy" style="color:#f5b041; margin-right:8px;"></i> Система поддержки и развития олимпиадного движения</p>
+        </div>
+    </section>
+
+    <!-- Основной контент -->
+    <main class="container main-content">
+        <!-- Новости -->
+        <section class="news-section">
+            <h2><i class="fas fa-newspaper"></i> Новости и анонсы</h2>
+
+            <article class="news-card">
+                <div class="news-icon"><i class="fas fa-calendar-check"></i></div>
+                <div class="news-body">
+                    <div class="news-date"><i class="far fa-calendar-alt"></i> 15 июня 2026</div>
+                    <h3>Открыт приём заявок на республиканскую олимпиаду по математике</h3>
+                    <p>Регистрация участников продлится до 30 июня. К участию приглашаются учащиеся 8–11 классов.</p>
+                    <a href="#">Подробнее →</a>
+                </div>
+            </article>
+
+            <article class="news-card">
+                <div class="news-icon"><i class="fas fa-award"></i></div>
+                <div class="news-body">
+                    <div class="news-date"><i class="far fa-calendar-alt"></i> 10 июня 2026</div>
+                    <h3>Итоги олимпиады по информатике — 2026</h3>
+                    <p>Опубликованы результаты финального этапа. Поздравляем победителей и призёров!</p>
+                    <a href="#">Смотреть результаты →</a>
+                </div>
+            </article>
+
+            <article class="news-card">
+                <div class="news-icon"><i class="fas fa-users"></i></div>
+                <div class="news-body">
+                    <div class="news-date"><i class="far fa-calendar-alt"></i> 5 июня 2026</div>
+                    <h3>Вебинар для организаторов олимпиад</h3>
+                    <p>25 июня состоится обучающий вебинар по работе в системе РИСПО РТ. Регистрация открыта.</p>
+                    <a href="#">Зарегистрироваться →</a>
+                </div>
+            </article>
+
+            <article class="news-card">
+                <div class="news-icon"><i class="fas fa-flag"></i></div>
+                <div class="news-body">
+                    <div class="news-date"><i class="far fa-calendar-alt"></i> 1 июня 2026</div>
+                    <h3>Старт летней олимпиадной школы</h3>
+                    <p>С 5 по 15 июля в КФУ пройдёт интенсивная подготовка по физике и химии для призёров.</p>
+                    <a href="#">Узнать программу →</a>
+                </div>
+            </article>
+        </section>
+
+        <!-- Информационные виджеты -->
+        <aside class="info-sidebar">
+            <h2><i class="fas fa-info-circle"></i> Информация</h2>
+
+            <div class="widget">
+                <h3><i class="fas fa-calendar-week"></i> Ближайшие олимпиады</h3>
+                <ul>
+                    <li><i class="fas fa-circle" style="color:#e74c3c; font-size:0.6rem;"></i> Математика — 20 июня</li>
+                    <li><i class="fas fa-circle" style="color:#f39c12; font-size:0.6rem;"></i> Физика — 25 июня</li>
+                    <li><i class="fas fa-circle" style="color:#2ecc71; font-size:0.6rem;"></i> Информатика — 30 июня</li>
+                    <li><i class="fas fa-circle" style="color:#3498db; font-size:0.6rem;"></i> Химия — 5 июля</li>
+                </ul>
+            </div>
+
+            <div class="widget">
+                <h3><i class="fas fa-tasks"></i> Архив результатов</h3>
+                <ul>
+                    <li><i class="fas fa-chevron-right"></i> <a href="#">2025/2026 учебный год</a></li>
+                    <li><i class="fas fa-chevron-right"></i> <a href="#">2024/2025 учебный год</a></li>
+                    <li><i class="fas fa-chevron-right"></i> <a href="#">Архив заявок</a></li>
+                </ul>
+            </div>
+
+            <div class="widget">
+                <h3><i class="fas fa-link"></i> Полезные ресурсы</h3>
+                <div class="resource-grid">
+                    <div class="resource-item">
+                        <i class="fas fa-book-open"></i>
+                        <span>Методичка</span>
+                    </div>
+                    <div class="resource-item">
+                        <i class="fas fa-video"></i>
+                        <span>Видеолекции</span>
+                    </div>
+                    <div class="resource-item">
+                        <i class="fas fa-download"></i>
+                        <span>Шаблоны</span>
+                    </div>
+                    <div class="resource-item">
+                        <i class="fas fa-envelope"></i>
+                        <span>Контакты</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Футер -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-logo">
+                <i class="fas fa-graduation-cap"></i>
+                <span>РИСПО РТ © 2026</span>
+            </div>
+            <div>
+                <a href="#"><i class="fas fa-envelope"></i> support@rispo-rt.ru</a> &nbsp;|&nbsp;
+                <a href="#"><i class="fas fa-shield-alt"></i> Политика конфиденциальности</a>
+            </div>
+            <div>
+                <span style="opacity:0.7;">Сделано с <i class="fas fa-heart" style="color:#f5b041;"></i> для образования</span>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
