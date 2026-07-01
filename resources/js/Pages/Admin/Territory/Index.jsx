@@ -165,13 +165,14 @@ function MsuTab({ msus, ateList }) {
     );
 }
 
-function SchoolTab({ schools, msuList, ateList, typeList, filters }) {
+function SchoolTab({ schools, msuList, ateList, typeList, filters, withoutOperatorCount = 0 }) {
     const [editingId, setEditingId] = useState(null);
     const [editingCode, setEditingCode] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [q, setQ] = useState(filters.school_q ?? '');
     const [fAte, setFAte] = useState(filters.school_ate ?? '');
     const [fMsu, setFMsu] = useState(filters.school_msu ?? '');
+    const [fNoOp, setFNoOp] = useState(!!filters.without_operator);
     const searchTimer = useRef(null);
     const blank = { short_name: '', full_name: '', education_level: 3, territorial_sign: 'city', msu_id: msuList[0]?.id ?? '', school_type_id: typeList[0]?.id ?? '' };
     const form = useForm({ ...blank });
@@ -205,7 +206,7 @@ function SchoolTab({ schools, msuList, ateList, typeList, filters }) {
         confirm(`Удалить школу «${s.short_name}»?`) &&
         router.delete(route('admin.territory.school.destroy', s.id), { preserveScroll: true });
     const applyFilters = (overrides = {}) => {
-        const params = { school_q: q, school_ate: fAte, school_msu: fMsu, ...overrides };
+        const params = { school_q: q, school_ate: fAte, school_msu: fMsu, without_operator: fNoOp ? 1 : '', ...overrides };
         Object.keys(params).forEach((k) => {
             if (params[k] === '' || params[k] == null) delete params[k];
         });
@@ -216,6 +217,7 @@ function SchoolTab({ schools, msuList, ateList, typeList, filters }) {
             only: ['schools', 'filters'],
         });
     };
+    const onNoOp = (checked) => { setFNoOp(checked); applyFilters({ without_operator: checked ? 1 : '' }); };
     // Реактивный поиск: применяем с небольшой задержкой; очистка поля сбрасывает результаты.
     const onSearch = (val) => {
         setQ(val);
@@ -247,8 +249,13 @@ function SchoolTab({ schools, msuList, ateList, typeList, filters }) {
                 </select>
                 <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder="Поиск: название или код ОО"
                     className="rounded border-gray-300 text-sm" />
-                {(q || fAte || fMsu) && (
-                    <button onClick={() => { setQ(''); setFAte(''); setFMsu(''); applyFilters({ school_q: '', school_ate: '', school_msu: '' }); }}
+                <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <input type="checkbox" checked={fNoOp} onChange={(e) => onNoOp(e.target.checked)} />
+                    Только без оператора
+                    {withoutOperatorCount > 0 && <span className="rounded bg-red-100 px-1.5 text-xs font-medium text-red-700">{withoutOperatorCount}</span>}
+                </label>
+                {(q || fAte || fMsu || fNoOp) && (
+                    <button onClick={() => { setQ(''); setFAte(''); setFMsu(''); setFNoOp(false); applyFilters({ school_q: '', school_ate: '', school_msu: '', without_operator: '' }); }}
                         className="text-sm text-gray-500 hover:underline">Сбросить</button>
                 )}
                 <button onClick={create} className="ml-auto rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
@@ -306,17 +313,22 @@ function SchoolTab({ schools, msuList, ateList, typeList, filters }) {
             </Modal>
 
             <Table
-                head={['Код', 'Название', 'МСУ', 'АТЕ', 'Уровень', 'Терр.', '']}
+                head={['Код', 'Название', 'МСУ', 'АТЕ', 'Уровень', 'Терр.', 'Оператор', '']}
                 rows={schools.data}
                 render={(s) => (
-                    <tr key={s.id}>
+                    <tr key={s.id} className={s.has_operator ? '' : 'bg-red-50'}>
                         <td className="px-4 py-2">{s.oo_code}</td>
                         <td className="px-4 py-2 text-gray-800">{s.short_name}</td>
                         <td className="px-4 py-2 text-gray-600">{s.msu}</td>
                         <td className="px-4 py-2 text-gray-600">{s.ate}</td>
                         <td className="px-4 py-2 text-gray-600">{LEVEL_LABELS[s.education_level]}</td>
                         <td className="px-4 py-2 text-gray-600">{TERRITORY_LABELS[s.territorial_sign]}</td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-4 py-2">
+                            {s.has_operator
+                                ? <span className="text-green-700">есть</span>
+                                : <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">нет</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right whitespace-nowrap">
                             <button onClick={() => edit(s)} className="mr-3 text-indigo-600 hover:underline">Изменить</button>
                             <button onClick={() => remove(s)} className="text-red-600 hover:underline">Удалить</button>
                         </td>
@@ -426,7 +438,7 @@ function TypeTab({ types }) {
     );
 }
 
-export default function TerritoryIndex({ ates, msus, schools, schoolTypes, filters, ateList, msuList, typeList }) {
+export default function TerritoryIndex({ ates, msus, schools, schoolTypes, filters, ateList, msuList, typeList, withoutOperatorCount = 0 }) {
     const { errors } = usePage().props;
     const [tab, setTab] = useState('ate');
 
@@ -474,7 +486,7 @@ export default function TerritoryIndex({ ates, msus, schools, schoolTypes, filte
                     {tab === 'ate' && <AteTab ates={ates} />}
                     {tab === 'msu' && <MsuTab msus={msus} ateList={ateList} />}
                     {tab === 'school' && (
-                        <SchoolTab schools={schools} msuList={msuList} ateList={ateList} typeList={typeList} filters={filters} />
+                        <SchoolTab schools={schools} msuList={msuList} ateList={ateList} typeList={typeList} filters={filters} withoutOperatorCount={withoutOperatorCount} />
                     )}
                     {tab === 'type' && <TypeTab types={schoolTypes} />}
                 </div>

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -38,6 +39,12 @@ class School extends Model
     public function students(): HasMany
     {
         return $this->hasMany(Student::class);
+    }
+
+    /** Школьные операторы этой ОО (учётные записи с ролью school_operator). */
+    public function operators(): HasMany
+    {
+        return $this->hasMany(User::class)->where('role', UserRole::SchoolOperator);
     }
 
     /**

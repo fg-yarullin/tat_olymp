@@ -26,13 +26,19 @@ class TerritoryController extends Controller
         $q = $request->query('school_q');
         $schoolAte = $request->query('school_ate');
         $schoolMsu = $request->query('school_msu');
+        $withoutOperator = $request->boolean('without_operator');
+
+        // «Без оператора» = нет ни одного активного school_operator.
+        $hasActiveOperator = fn ($sub) => $sub->where('is_active', true);
 
         $schools = School::query()
             ->with(['msu:id,name', 'ate:id,name', 'schoolType:id,name'])
+            ->withCount(['operators as active_operators_count' => $hasActiveOperator])
             ->when($q, fn ($query) => $query->where(fn ($w) => $w
                 ->where('short_name', 'like', "%$q%")->orWhere('oo_code', 'like', "%$q%")))
             ->when($schoolAte, fn ($query) => $query->where('ate_id', $schoolAte))
             ->when($schoolMsu, fn ($query) => $query->where('msu_id', $schoolMsu))
+            ->when($withoutOperator, fn ($query) => $query->whereDoesntHave('operators', $hasActiveOperator))
             ->orderBy('oo_code')
             ->paginate(15)
             ->withQueryString()
@@ -48,7 +54,9 @@ class TerritoryController extends Controller
                 'ate' => $s->ate?->name,
                 'school_type_id' => $s->school_type_id,
                 'school_type' => $s->schoolType?->name,
+                'has_operator' => $s->active_operators_count > 0,
             ]);
+        $withoutOperatorCount = School::whereDoesntHave('operators', $hasActiveOperator)->count();
 
         return Inertia::render('Admin/Territory/Index', [
             'ates' => Ate::withCount(['msus', 'schools'])->orderBy('ate_code')->get()
@@ -66,7 +74,8 @@ class TerritoryController extends Controller
                 ->map(fn (SchoolType $t) => [
                     'id' => $t->id, 'digit' => $t->digit, 'name' => $t->name, 'schools_count' => $t->schools_count,
                 ]),
-            'filters' => ['school_q' => $q, 'school_ate' => $schoolAte, 'school_msu' => $schoolMsu],
+            'filters' => ['school_q' => $q, 'school_ate' => $schoolAte, 'school_msu' => $schoolMsu, 'without_operator' => $withoutOperator],
+            'withoutOperatorCount' => $withoutOperatorCount,
             'ateList' => Ate::orderBy('ate_code')->get(['id', 'name']),
             'msuList' => Msu::orderBy('msu_code')->get(['id', 'name', 'ate_id']),
             'typeList' => SchoolType::orderBy('digit')->get(['id', 'digit', 'name']),

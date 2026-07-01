@@ -114,4 +114,26 @@ class MunicipalSchoolTest extends TestCase
         $op = User::factory()->create(['role' => UserRole::SchoolOperator, 'is_active' => true]);
         $this->actingAs($op)->get(route('municipal.schools.index'))->assertForbidden();
     }
+
+    public function test_schools_without_active_operator_flagged_and_filterable(): void
+    {
+        $ate = $this->ate('70');
+        $msu = $this->msu($ate, '70');
+        $withOp = $this->school($ate, $msu, '700001');
+        $this->school($ate, $msu, '700002');       // без оператора
+        $inactiveOnly = $this->school($ate, $msu, '700003'); // только неактивный оператор
+
+        User::factory()->create(['role' => UserRole::SchoolOperator, 'school_id' => $withOp->id, 'is_active' => true]);
+        User::factory()->create(['role' => UserRole::SchoolOperator, 'school_id' => $inactiveOnly->id, 'is_active' => false]);
+
+        $coord = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        // Счётчик без активного оператора = 2 (пустая + только неактивный).
+        $this->actingAs($coord)->get(route('municipal.schools.index'))
+            ->assertInertia(fn (AssertableInertia $p) => $p->where('withoutOperatorCount', 2)->has('schools.data', 3));
+
+        // Фильтр «только без оператора» → 2 школы.
+        $this->actingAs($coord)->get(route('municipal.schools.index', ['without_operator' => 1]))
+            ->assertInertia(fn (AssertableInertia $p) => $p->has('schools.data', 2));
+    }
 }

@@ -26,14 +26,20 @@ class SchoolController extends Controller
         $q = $request->query('school_q');
         $ateFilter = $request->query('school_ate');
         $msuFilter = $request->query('school_msu');
+        $withoutOperator = $request->boolean('without_operator');
+
+        // «Без оператора» = нет ни одного активного school_operator.
+        $hasActiveOperator = fn ($sub) => $sub->where('is_active', true);
 
         $schools = School::query()
             ->whereIn('ate_id', $ateIds)
             ->with(['msu:id,name', 'ate:id,name', 'schoolType:id,name'])
+            ->withCount(['operators as active_operators_count' => $hasActiveOperator])
             ->when($q, fn ($query) => $query->where(fn ($w) => $w
                 ->where('short_name', 'like', "%$q%")->orWhere('oo_code', 'like', "%$q%")))
             ->when($ateFilter && in_array((int) $ateFilter, $ateIds, true), fn ($query) => $query->where('ate_id', $ateFilter))
             ->when($msuFilter, fn ($query) => $query->where('msu_id', $msuFilter))
+            ->when($withoutOperator, fn ($query) => $query->whereDoesntHave('operators', $hasActiveOperator))
             ->orderBy('oo_code')
             ->paginate(15)
             ->withQueryString()
@@ -49,15 +55,21 @@ class SchoolController extends Controller
                 'ate' => $s->ate?->name,
                 'school_type_id' => $s->school_type_id,
                 'school_type' => $s->schoolType?->name,
+                'has_operator' => $s->active_operators_count > 0,
             ]);
+
+        // Счётчик школ без активного оператора в области видимости.
+        $withoutOperatorCount = School::query()->whereIn('ate_id', $ateIds)
+            ->whereDoesntHave('operators', $hasActiveOperator)->count();
 
         return Inertia::render('Municipal/Schools/Index', [
             'schools' => $schools,
-            'filters' => ['school_q' => $q, 'school_ate' => $ateFilter, 'school_msu' => $msuFilter],
+            'filters' => ['school_q' => $q, 'school_ate' => $ateFilter, 'school_msu' => $msuFilter, 'without_operator' => $withoutOperator],
             'ateList' => Ate::whereIn('id', $ateIds)->orderBy('name')->get(['id', 'name']),
             'msuList' => Msu::whereIn('ate_id', $ateIds)->orderBy('msu_code')->get(['id', 'name', 'ate_id']),
             'typeList' => SchoolType::orderBy('digit')->get(['id', 'digit', 'name']),
             'multiAte' => count($ateIds) > 1, // показывать ли фильтр по АТЕ (для супер-координатора)
+            'withoutOperatorCount' => $withoutOperatorCount,
         ]);
     }
 

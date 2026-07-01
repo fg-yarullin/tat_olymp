@@ -16,13 +16,14 @@ function Field({ label, error, children }) {
     );
 }
 
-export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuList, typeList, multiAte }) {
+export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuList, typeList, multiAte, withoutOperatorCount = 0 }) {
     const [editingId, setEditingId] = useState(null);
     const [editingCode, setEditingCode] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [q, setQ] = useState(filters.school_q ?? '');
     const [fAte, setFAte] = useState(filters.school_ate ?? '');
     const [fMsu, setFMsu] = useState(filters.school_msu ?? '');
+    const [fNoOp, setFNoOp] = useState(!!filters.without_operator);
     const searchTimer = useRef(null);
     const blank = { short_name: '', full_name: '', education_level: 3, territorial_sign: 'city', msu_id: msuList[0]?.id ?? '', school_type_id: typeList[0]?.id ?? '' };
     const form = useForm({ ...blank });
@@ -54,12 +55,13 @@ export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuLi
     };
 
     const applyFilters = (overrides = {}) => {
-        const params = { school_q: q, school_ate: fAte, school_msu: fMsu, ...overrides };
+        const params = { school_q: q, school_ate: fAte, school_msu: fMsu, without_operator: fNoOp ? 1 : '', ...overrides };
         Object.keys(params).forEach((k) => {
             if (params[k] === '' || params[k] == null) delete params[k];
         });
         router.get(route('municipal.schools.index'), params, { preserveState: true, preserveScroll: true, replace: true, only: ['schools', 'filters'] });
     };
+    const onNoOp = (checked) => { setFNoOp(checked); applyFilters({ without_operator: checked ? 1 : '' }); };
     const onSearch = (val) => {
         setQ(val);
         clearTimeout(searchTimer.current);
@@ -88,8 +90,13 @@ export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuLi
                         </select>
                         <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder="Поиск: название или код ОО"
                             className="rounded border-gray-300 text-sm" />
-                        {(q || fAte || fMsu) && (
-                            <button onClick={() => { setQ(''); setFAte(''); setFMsu(''); applyFilters({ school_q: '', school_ate: '', school_msu: '' }); }}
+                        <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                            <input type="checkbox" checked={fNoOp} onChange={(e) => onNoOp(e.target.checked)} />
+                            Только без оператора
+                            {withoutOperatorCount > 0 && <span className="rounded bg-red-100 px-1.5 text-xs font-medium text-red-700">{withoutOperatorCount}</span>}
+                        </label>
+                        {(q || fAte || fMsu || fNoOp) && (
+                            <button onClick={() => { setQ(''); setFAte(''); setFMsu(''); setFNoOp(false); applyFilters({ school_q: '', school_ate: '', school_msu: '', without_operator: '' }); }}
                                 className="text-sm text-gray-500 hover:underline">Сбросить</button>
                         )}
                         <button onClick={create} className="ml-auto rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
@@ -101,14 +108,14 @@ export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuLi
                         <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                                 <tr>
-                                    {['Код', 'Название', 'Тип', 'МСУ', 'АТЕ', 'Уровень', 'Терр.', ''].map((h, i) => <th key={i} className="px-4 py-3">{h}</th>)}
+                                    {['Код', 'Название', 'Тип', 'МСУ', 'АТЕ', 'Уровень', 'Терр.', 'Оператор', ''].map((h, i) => <th key={i} className="px-4 py-3">{h}</th>)}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {schools.data.length === 0 ? (
-                                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">Школы не найдены.</td></tr>
+                                    <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">Школы не найдены.</td></tr>
                                 ) : schools.data.map((s) => (
-                                    <tr key={s.id} className="hover:bg-gray-50">
+                                    <tr key={s.id} className={s.has_operator ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'}>
                                         <td className="px-4 py-2 font-mono">{s.oo_code}</td>
                                         <td className="px-4 py-2 text-gray-800">{s.short_name}</td>
                                         <td className="px-4 py-2 text-gray-500">{s.school_type ?? '—'}</td>
@@ -116,6 +123,11 @@ export default function MunicipalSchoolsIndex({ schools, filters, ateList, msuLi
                                         <td className="px-4 py-2 text-gray-600">{s.ate}</td>
                                         <td className="px-4 py-2 text-gray-600">{LEVEL_LABELS[s.education_level]}</td>
                                         <td className="px-4 py-2 text-gray-600">{TERRITORY_LABELS[s.territorial_sign]}</td>
+                                        <td className="px-4 py-2">
+                                            {s.has_operator
+                                                ? <span className="text-xs text-green-700">есть</span>
+                                                : <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">нет</span>}
+                                        </td>
                                         <td className="px-4 py-2 text-right">
                                             <button onClick={() => edit(s)} className="text-indigo-600 hover:underline">Изменить</button>
                                         </td>
