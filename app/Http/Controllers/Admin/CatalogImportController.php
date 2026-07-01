@@ -11,8 +11,10 @@ use App\Models\School;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\User;
+use App\Models\UserImport;
 use App\Support\Concerns\ParsesImportValues;
 use App\Support\ImportResult;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -378,104 +380,169 @@ class CatalogImportController extends Controller
 
     // ---- Пользователи / координаторы ----
 
-    public function importUsers(Request $request): RedirectResponse
+    public function importUsers(Request $request): JsonResponse
     {
-        $result = $this->processUserRows(
-            $this->validateAndRead($request),
-            ['admin', 'super_coordinator', 'municipal_coordinator', 'school_operator'],
-        );
-
-        return $this->finish('Пользователи', $result);
+        return $this->startUserImport($request, ['admin', 'super_coordinator', 'municipal_coordinator', 'school_operator'], 'Пользователи');
     }
 
-    public function importCoordinators(Request $request): RedirectResponse
+    public function importCoordinators(Request $request): JsonResponse
     {
-        $result = $this->processUserRows(
-            $this->validateAndRead($request),
-            ['super_coordinator', 'municipal_coordinator', 'school_operator'],
-        );
-
-        return $this->finish('Координаторы', $result);
+        return $this->startUserImport($request, ['super_coordinator', 'municipal_coordinator', 'school_operator'], 'Координаторы');
     }
 
-    /**
-     * Общая обработка строк пользователей. Колонки: ФИО, email, роль, код_привязки, пароль.
-     * Код привязки: АТЕ — для координаторов, ОО — для оператора, не нужен для администратора.
-     */
-    private function processUserRows(array $rows, array $allowedRoles): ImportResult
+    /** Загрузка файла → запись фонового импорта со строками. Обработка — чанками (без таймаута/воркера). */
+    private function startUserImport(Request $request, array $allowedRoles, string $label): JsonResponse
     {
-        $ateByCode = Ate::pluck('id', 'ate_code');
-        $schoolByCode = School::pluck('id', 'oo_code');
-        $result = new ImportResult();
+        $rows = $this->validateAndRead($request);
 
-        DB::transaction(function () use ($rows, $allowedRoles, $ateByCode, $schoolByCode, $result) {
-            foreach ($rows as $i => $r) {
-                $line = $i + 2;
-                $fio = trim((string) ($r[0] ?? ''));
-                $email = trim((string) ($r[1] ?? ''));
-                $role = trim((string) ($r[2] ?? ''));
-                $code = trim((string) ($r[3] ?? ''));
-                $password = trim((string) ($r[4] ?? ''));
+        $import = UserImport::create([
+            'user_id' => $request->user()->id,
+            'label' => $label,
+            'allowed_roles' => $allowedRoles,
+            'header' => $this->header,
+            'rows' => array_values($rows),
+            'total' => count($rows),
+        ]);
 
-                if ($fio === '' && $email === '') {
-                    continue;
-                }
-                if ($fio === '' || $email === '' || $role === '') {
-                    $result->fail($line, 'ФИО, email и роль обязательны', $r);
-                    continue;
-                }
-                if (! in_array($role, $allowedRoles, true)) {
-                    $result->fail($line, "недопустимая роль «{$role}»", $r);
-                    continue;
-                }
-                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $result->fail($line, "некорректный email «{$email}»", $r);
-                    continue;
-                }
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
 
-                $ateId = $schoolId = null;
-                if ($role === 'school_operator') {
-                    if (! $schoolByCode->has($code)) {
-                        $result->fail($line, "неизвестный код ОО «{$code}»", $r);
-                        continue;
-                    }
-                    $schoolId = $schoolByCode[$code];
-                } elseif ($role !== 'admin') {
-                    if (! $ateByCode->has($code)) {
-                        $result->fail($line, "неизвестный код АТЕ «{$code}»", $r);
-                        continue;
-                    }
-                    $ateId = $ateByCode[$code];
-                }
+    /** Обработка очередной части строк (вызывается фронтендом в цикле); возвращает прогресс. */
+    public function chunkUserImport(Request $request, UserImport $userImport): JsonResponse
+    {
+        abort_unless($userImport->user_id === $request->user()->id, 403);
+        set_time_limit(0);
 
-                $user = User::firstWhere('email', $email);
-                if ($user) {
-                    $attrs = ['name' => $fio, 'role' => $role, 'ate_id' => $ateId, 'school_id' => $schoolId];
-                    if ($password !== '') {
-                        if (strlen($password) < 8) {
-                            $result->fail($line, 'пароль короче 8 символов', $r);
-                            continue;
-                        }
-                        $attrs['password'] = Hash::make($password);
-                    }
-                    $user->update($attrs);
-                    $result->updated++;
-                } else {
-                    if (strlen($password) < 8) {
-                        $result->fail($line, 'для нового пользователя нужен пароль (мин. 8 символов)', $r);
-                        continue;
-                    }
-                    User::create([
-                        'name' => $fio, 'email' => $email, 'role' => $role,
-                        'ate_id' => $ateId, 'school_id' => $schoolId,
-                        'password' => Hash::make($password), 'is_active' => true, 'email_verified_at' => now(),
-                    ]);
-                    $result->created++;
+        if ($userImport->status !== 'done') {
+            $size = 100;
+            $slice = array_slice($userImport->rows, $userImport->processed, $size);
+            $ateByCode = Ate::pluck('id', 'ate_code');
+            $schoolByCode = School::pluck('id', 'oo_code');
+            $result = new ImportResult();
+
+            DB::transaction(function () use ($slice, $userImport, $ateByCode, $schoolByCode, $result) {
+                foreach ($slice as $i => $r) {
+                    $line = $userImport->processed + $i + 2; // +1 заголовок, +1 на 1-индекс
+                    $this->applyUserRow((array) $r, $line, $userImport->allowed_roles, $ateByCode, $schoolByCode, $result);
                 }
+            });
+
+            $userImport->created_count += $result->created;
+            $userImport->updated_count += $result->updated;
+            $userImport->failed_count += count($result->failures);
+            $userImport->errors = array_merge($userImport->errors ?? [], $result->failures);
+            $userImport->processed = min($userImport->processed + count($slice), $userImport->total);
+            if ($userImport->processed >= $userImport->total) {
+                $userImport->status = 'done';
             }
-        });
+            $userImport->save();
+        }
 
-        return $result;
+        return response()->json($this->importProgress($userImport));
+    }
+
+    private function importProgress(UserImport $i): array
+    {
+        return [
+            'id' => $i->id, 'label' => $i->label, 'total' => $i->total, 'processed' => $i->processed,
+            'created' => $i->created_count, 'updated' => $i->updated_count, 'failed' => $i->failed_count,
+            'done' => $i->status === 'done',
+        ];
+    }
+
+    /** Выгрузка проблемных строк фонового импорта пользователей (исходные ячейки + «Ошибка»). */
+    public function userImportErrors(Request $request, UserImport $userImport): StreamedResponse|RedirectResponse
+    {
+        abort_unless($userImport->user_id === $request->user()->id, 403);
+        $failures = $userImport->errors ?? [];
+        if (! $failures) {
+            return redirect()->route('admin.imports.index');
+        }
+        $header = $userImport->header ?? [];
+        $filename = 'import_errors_'.now()->format('Ymd_His').'.csv';
+
+        return response()->streamDownload(function () use ($failures, $header) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, array_merge($header, ['Ошибка']), ';');
+            foreach ($failures as $f) {
+                fputcsv($out, array_merge((array) $f['row'], [$f['reason']]), ';');
+            }
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /** Обработка одной строки пользователя. Колонки: ФИО, email, роль, код_привязки, пароль. */
+    private function applyUserRow(array $r, int $line, array $allowedRoles, $ateByCode, $schoolByCode, ImportResult $result): void
+    {
+        $fio = trim((string) ($r[0] ?? ''));
+        $email = trim((string) ($r[1] ?? ''));
+        $role = trim((string) ($r[2] ?? ''));
+        $code = trim((string) ($r[3] ?? ''));
+        $password = trim((string) ($r[4] ?? ''));
+
+        if ($fio === '' && $email === '') {
+            return;
+        }
+        if ($fio === '' || $email === '' || $role === '') {
+            $result->fail($line, 'ФИО, email и роль обязательны', $r);
+
+            return;
+        }
+        if (! in_array($role, $allowedRoles, true)) {
+            $result->fail($line, "недопустимая роль «{$role}»", $r);
+
+            return;
+        }
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $result->fail($line, "некорректный email «{$email}»", $r);
+
+            return;
+        }
+
+        $ateId = $schoolId = null;
+        if ($role === 'school_operator') {
+            if (! $schoolByCode->has($code)) {
+                $result->fail($line, "неизвестный код ОО «{$code}»", $r);
+
+                return;
+            }
+            $schoolId = $schoolByCode[$code];
+        } elseif ($role !== 'admin') {
+            if (! $ateByCode->has($code)) {
+                $result->fail($line, "неизвестный код АТЕ «{$code}»", $r);
+
+                return;
+            }
+            $ateId = $ateByCode[$code];
+        }
+
+        $user = User::firstWhere('email', $email);
+        if ($user) {
+            $attrs = ['name' => $fio, 'role' => $role, 'ate_id' => $ateId, 'school_id' => $schoolId];
+            if ($password !== '') {
+                if (strlen($password) < 8) {
+                    $result->fail($line, 'пароль короче 8 символов', $r);
+
+                    return;
+                }
+                $attrs['password'] = Hash::make($password);
+            }
+            $user->update($attrs);
+            $result->updated++;
+        } else {
+            if (strlen($password) < 8) {
+                $result->fail($line, 'для нового пользователя нужен пароль (мин. 8 символов)', $r);
+
+                return;
+            }
+            User::create([
+                'name' => $fio, 'email' => $email, 'role' => $role,
+                'ate_id' => $ateId, 'school_id' => $schoolId,
+                'password' => Hash::make($password), 'is_active' => true, 'email_verified_at' => now(),
+            ]);
+            $result->created++;
+        }
     }
 
     // ---- Общая инфраструктура ----

@@ -52,8 +52,12 @@ class AdminImportTemplatesTest extends TestCase
         Ate::create(['ate_code' => '45', 'name' => 'Казань', 'type' => 'unified']);
         $admin = User::factory()->create(['role' => UserRole::Admin, 'is_active' => true]);
 
-        $this->actingAs($admin)
-            ->post(route('admin.imports.coordinators'), ['file' => $this->templateUpload('import_coordinators.csv')]);
+        // Чанковый импорт: start → чанки до завершения.
+        $this->actingAs($admin);
+        $id = $this->post(route('admin.imports.coordinators'), ['file' => $this->templateUpload('import_coordinators.csv')])->json('id');
+        do {
+            $prog = $this->post(route('admin.imports.users.chunk', $id))->json();
+        } while (! $prog['done']);
 
         // Координатор и супер-координатор из шаблона созданы (оператор — нет школы 100001, это ожидаемо)
         $this->assertDatabaseHas('users', ['email' => 'coordinator@example.ru', 'role' => 'municipal_coordinator']);

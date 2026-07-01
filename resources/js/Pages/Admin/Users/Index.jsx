@@ -26,12 +26,23 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
     const [search, setSearch] = useState(filters.q ?? '');
     const [fAte, setFAte] = useState(filters.ate_id ?? '');
     const [schoolFilterAte, setSchoolFilterAte] = useState('');
+    const [genPwd, setGenPwd] = useState('');
 
     const form = useForm({ ...BLANK });
+
+    // Генерация надёжного пароля (для ручного сброса вышестоящим). Показывается, чтобы передать пользователю.
+    const generatePassword = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        const rnd = crypto.getRandomValues(new Uint32Array(12));
+        const pwd = Array.from(rnd, (n) => chars[n % chars.length]).join('');
+        form.setData('password', pwd);
+        setGenPwd(pwd);
+    };
 
     const startCreate = () => {
         setEditingId(null);
         setSchoolFilterAte('');
+        setGenPwd('');
         form.setData({ ...BLANK });
         form.clearErrors();
         setShowForm(true);
@@ -40,6 +51,7 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
     const startEdit = (u) => {
         setEditingId(u.id);
         setSchoolFilterAte('');
+        setGenPwd('');
         form.setData({
             name: u.name,
             email: u.email,
@@ -169,12 +181,21 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
                                     label={editingId ? 'Новый пароль (если меняем)' : 'Пароль'}
                                     error={form.errors.password}
                                 >
-                                    <input
-                                        type="password"
-                                        value={form.data.password}
-                                        onChange={(e) => form.setData('password', e.target.value)}
-                                        className="w-full rounded border-gray-300 text-sm"
-                                    />
+                                    <div className="flex gap-2">
+                                        <input
+                                            type={genPwd ? 'text' : 'password'}
+                                            value={form.data.password}
+                                            onChange={(e) => { form.setData('password', e.target.value); setGenPwd(''); }}
+                                            className="w-full rounded border-gray-300 text-sm"
+                                        />
+                                        <button type="button" onClick={generatePassword}
+                                            className="shrink-0 rounded bg-gray-200 px-3 text-sm hover:bg-gray-300">Сгенерировать</button>
+                                    </div>
+                                    {genPwd && (
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Сгенерирован пароль: <span className="font-mono font-medium text-gray-800">{genPwd}</span> — сохраните и передайте пользователю.
+                                        </p>
+                                    )}
                                 </Field>
                                 <Field label="Роль" error={form.errors.role}>
                                     <select

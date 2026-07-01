@@ -1,5 +1,91 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, usePage } from '@inertiajs/react';
+import { useState } from 'react';
+
+// Импорт учётных записей по частям (чанками) с прогресс-баром — без таймаута и без очереди/воркера.
+function BatchImportCard({ title, columns, startRoute, count, template }) {
+    const csrf = usePage().props.csrf_token;
+    const [file, setFile] = useState(null);
+    const [running, setRunning] = useState(false);
+    const [error, setError] = useState('');
+    const [progress, setProgress] = useState(null); // { id, total, processed, created, updated, failed, done }
+
+    const headers = { 'X-CSRF-TOKEN': csrf };
+
+    const run = async (e) => {
+        e.preventDefault();
+        if (!file) return;
+        setError('');
+        setRunning(true);
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const { data } = await window.axios.post(route(startRoute), fd, { headers });
+            let prog = { id: data.id, total: data.total, processed: 0, created: 0, updated: 0, failed: 0, done: false };
+            setProgress(prog);
+            while (!prog.done) {
+                const res = await window.axios.post(route('admin.imports.users.chunk', prog.id), {}, { headers });
+                prog = res.data;
+                setProgress(prog);
+            }
+            setFile(null);
+        } catch (err) {
+            setError(err?.response?.data?.errors?.file?.[0] || err?.response?.data?.message || 'Ошибка импорта');
+        } finally {
+            setRunning(false);
+        }
+    };
+
+    const reset = () => { setProgress(null); setError(''); };
+    const pct = progress && progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : (progress?.done ? 100 : 0);
+
+    return (
+        <form onSubmit={run} className="space-y-3 rounded bg-white p-6 shadow">
+            <div className="flex items-baseline justify-between">
+                <h3 className="font-semibold text-gray-800">{title}</h3>
+                <span className="text-sm text-gray-500">в базе: {count}</span>
+            </div>
+            <p className="text-xs text-gray-500">Колонки: <code className="rounded bg-gray-100 px-1">{columns}</code></p>
+            <a href={`/templates/${template}`} download className="inline-block text-xs text-indigo-600 hover:underline">
+                ↓ Скачать шаблон ({template})
+            </a>
+
+            {!progress && (
+                <div className="flex items-center gap-2">
+                    <input type="file" accept=".csv,.txt,.xlsx" onChange={(e) => setFile(e.target.files[0])} className="text-sm" />
+                    <button type="submit" disabled={!file || running}
+                        className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
+                        Импортировать
+                    </button>
+                </div>
+            )}
+
+            {progress && (
+                <div className="space-y-2">
+                    <div className="h-3 w-full overflow-hidden rounded bg-gray-200">
+                        <div className={`h-full ${progress.done ? 'bg-green-600' : 'bg-indigo-600'} transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-gray-600">
+                        <span>{progress.done ? 'Готово' : 'Обработка…'} {progress.processed} из {progress.total} ({pct}%)</span>
+                        <span>добавлено {progress.created}, обновлено {progress.updated}{progress.failed > 0 ? `, пропущено ${progress.failed}` : ''}</span>
+                    </div>
+                    {progress.done && (
+                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                            {progress.failed > 0 && (
+                                <a href={route('admin.imports.users.errors', progress.id)}
+                                    className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">
+                                    ↓ Скачать строки с ошибками ({progress.failed})
+                                </a>
+                            )}
+                            <button type="button" onClick={reset} className="text-xs text-indigo-600 hover:underline">Загрузить ещё файл</button>
+                        </div>
+                    )}
+                </div>
+            )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+        </form>
+    );
+}
 
 function ImportCard({ title, columns, routeName, count, template }) {
     const form = useForm({ file: null });
@@ -149,17 +235,17 @@ export default function ImportsIndex({ counts, coordinatorsCount, importErrors }
                         администратора не нужен. Запись обновляется по e-mail; пароль обязателен
                         только для новых учётных записей.
                     </p>
-                    <ImportCard
+                    <BatchImportCard
                         title="Пользователи (все роли)"
                         columns="ФИО, email, роль, код_привязки, пароль"
-                        routeName="admin.imports.users"
+                        startRoute="admin.imports.users"
                         count={counts.users}
                         template="import_users.csv"
                     />
-                    <ImportCard
+                    <BatchImportCard
                         title="Координаторы / операторы (пул, без admin)"
                         columns="ФИО, email, роль, код_привязки, пароль"
-                        routeName="admin.imports.coordinators"
+                        startRoute="admin.imports.coordinators"
                         count={coordinatorsCount}
                         template="import_coordinators.csv"
                     />

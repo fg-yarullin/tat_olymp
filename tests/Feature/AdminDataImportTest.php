@@ -230,9 +230,12 @@ class AdminDataImportTest extends TestCase
             ['Главный Админ', 'newadmin@x.local', 'admin', '', 'secret123'],
         ]);
 
-        $this->actingAs($this->admin())
-            ->post(route('admin.imports.users'), ['file' => $file])
-            ->assertSessionHas('success');
+        // Чанковый импорт: start → чанки до завершения (тем же админом).
+        $this->actingAs($this->admin());
+        $id = $this->post(route('admin.imports.users'), ['file' => $file])->json('id');
+        do {
+            $prog = $this->post(route('admin.imports.users.chunk', $id))->json();
+        } while (! $prog['done']);
 
         $this->assertDatabaseHas('users', [
             'email' => 'newadmin@x.local', 'role' => 'admin', 'ate_id' => null, 'school_id' => null,

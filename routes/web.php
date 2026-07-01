@@ -219,6 +219,8 @@ Route::middleware(['auth', 'user.active', 'role:admin'])
         Route::post('/imports/olympiads', [CatalogImportController::class, 'importOlympiads'])->name('imports.olympiads');
         Route::post('/imports/students', [CatalogImportController::class, 'importStudents'])->name('imports.students');
         Route::post('/imports/users', [CatalogImportController::class, 'importUsers'])->name('imports.users');
+        Route::post('/imports/user-imports/{userImport}/chunk', [CatalogImportController::class, 'chunkUserImport'])->name('imports.users.chunk');
+        Route::get('/imports/user-imports/{userImport}/errors.csv', [CatalogImportController::class, 'userImportErrors'])->name('imports.users.errors');
         Route::get('/imports/errors', [CatalogImportController::class, 'downloadErrors'])->name('imports.errors');
     });
 
