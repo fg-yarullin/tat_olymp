@@ -37,8 +37,8 @@ class ProtocolTemplateSeeder extends Seeder
         $this->make('Протокол ШЭ (общий)', 'school', null, self::SCHOOL_COLUMNS);
         $this->make('Протокол МЭ (общий)', 'municipal', null, $this->municipalGeneral());
 
-        if ($id = Subject::where('name', 'Технология')->value('id')) {
-            $this->make('Протокол МЭ. Технология', 'municipal', $id, $this->technology());
+        if ($id = Subject::where('name', 'Труд (технология)')->value('id')) {
+            $this->make('Протокол МЭ. Труд (технология)', 'municipal', $id, $this->technology());
         }
         if ($id = Subject::where('name', 'Астрономия')->value('id')) {
             $this->make('Протокол МЭ. Астрономия', 'municipal', $id, $this->astronomy());

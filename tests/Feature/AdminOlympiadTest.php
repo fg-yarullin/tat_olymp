@@ -36,6 +36,39 @@ class AdminOlympiadTest extends TestCase
         return AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
     }
 
+    public function test_index_defaults_to_current_academic_year(): void
+    {
+        $currentYear = $this->year();
+        $pastYear = AcademicYear::create(['name' => '2024/2025', 'status' => 'archive']);
+        $currentOlympiad = Olympiad::create(['academic_year_id' => $currentYear->id, 'subject' => 'Физика', 'stage' => 'school', 'grades' => '7', 'date_held' => '2025-11-01', 'status' => 'grading']);
+        $pastOlympiad = Olympiad::create(['academic_year_id' => $pastYear->id, 'subject' => 'Физика', 'stage' => 'school', 'grades' => '7', 'date_held' => '2024-11-01', 'status' => 'grading']);
+
+        // Без параметра year — по умолчанию показан текущий учебный год.
+        $this->actingAs($this->admin())->get(route('admin.olympiads.index'))
+            ->assertInertia(fn ($p) => $p->where('olympiads.data', fn ($d) => collect($d)->pluck('id')->all() === [$currentOlympiad->id])
+                ->where('filters.year', $currentYear->id));
+
+        // year=all — явный сброс, показаны все годы.
+        $this->actingAs($this->admin())->get(route('admin.olympiads.index', ['year' => 'all']))
+            ->assertInertia(fn ($p) => $p->where('olympiads.data', fn ($d) => collect($d)->pluck('id')->sort()->values()->all() === collect([$currentOlympiad->id, $pastOlympiad->id])->sort()->values()->all())
+                ->where('filters.year', 'all'));
+
+        // Явный выбор конкретного (прошлого) года — фильтрует по нему.
+        $this->actingAs($this->admin())->get(route('admin.olympiads.index', ['year' => $pastYear->id]))
+            ->assertInertia(fn ($p) => $p->where('olympiads.data', fn ($d) => collect($d)->pluck('id')->all() === [$pastOlympiad->id]));
+    }
+
+    public function test_index_sorted_by_date_held_ascending(): void
+    {
+        $year = $this->year();
+        $late = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Химия', 'stage' => 'school', 'grades' => '7', 'date_held' => '2025-12-20', 'status' => 'grading']);
+        $early = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Биология', 'stage' => 'school', 'grades' => '7', 'date_held' => '2025-10-05', 'status' => 'grading']);
+        $middle = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'География', 'stage' => 'school', 'grades' => '7', 'date_held' => '2025-11-10', 'status' => 'grading']);
+
+        $this->actingAs($this->admin())->get(route('admin.olympiads.index'))
+            ->assertInertia(fn ($p) => $p->where('olympiads.data', fn ($d) => collect($d)->pluck('id')->all() === [$early->id, $middle->id, $late->id]));
+    }
+
     public function test_index_filters_by_subject_search_hide_stage_and_level(): void
     {
         $year = $this->year();

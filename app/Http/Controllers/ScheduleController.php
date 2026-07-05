@@ -11,7 +11,7 @@ use Inertia\Response;
  * Расписание олимпиад текущего года: начало, закрытие ввода и публикация результатов.
  * Показываются ЗАФИКСИРОВАННЫЕ (базовые) сроки олимпиады — продления (OlympiadEntryExtension)
  * на расписание не влияют (они только операционно открывают/закрывают ввод в кабинетах).
- * Полное доступно рабочим ролям; публичное (краткое: начало + публикация) — без входа.
+ * Полное доступно рабочим ролям; публичное (краткое: только даты проведения) — без входа.
  */
 class ScheduleController extends Controller
 {
@@ -33,14 +33,10 @@ class ScheduleController extends Controller
         return Inertia::render('Schedule/Index', ['olympiads' => $rows]);
     }
 
-    /** Публичное краткое расписание (без входа): начало и публикация результатов. */
+    /** Публичное краткое расписание (без входа): даты проведения олимпиад. */
     public function publicView(): Response
     {
-        $rows = $this->olympiads()->map(function (Olympiad $o) {
-            $pub = $o->stage !== 'school' ? $this->phaseDate($o, 'appeal') : $this->phaseDate($o, 'primary');
-
-            return array_merge($this->base($o), ['publication' => $pub]);
-        });
+        $rows = $this->olympiads()->map(fn (Olympiad $o) => $this->base($o));
 
         return Inertia::render('Schedule/Public', ['olympiads' => $rows]);
     }

@@ -3,12 +3,17 @@
 namespace App\Http\Controllers\School;
 
 use App\Http\Controllers\Controller;
+use App\Models\BulkImport;
 use App\Models\HumanOlympiad;
 use App\Models\Olympiad;
+use App\Models\School;
 use App\Models\Student;
 use App\Models\TechPractice;
+use App\Support\ChunkedImportService;
+use App\Support\ImportResult;
 use App\Support\OlympiadImportHeader;
 use App\Support\SpreadsheetReader;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -42,7 +47,7 @@ class OlympiadController extends Controller
     /** Признак олимпиады по технологии (профиль/практики берутся из справочника). */
     private function isTechnology(Olympiad $olympiad): bool
     {
-        return $olympiad->subject === 'Технология';
+        return $olympiad->isTechnologySubject();
     }
 
     /**
@@ -72,6 +77,7 @@ class OlympiadController extends Controller
 
         return $map;
     }
+
     public function downloadZipArchive(Request $request, Olympiad $olympiad): BinaryFileResponse|RedirectResponse
     {
         $schoolId = $request->user()->school_id;
@@ -242,17 +248,16 @@ class OlympiadController extends Controller
      * Загрузка заполненного шаблона (ТЗ 4.2). «Человеко-олимпиада» создаётся/обновляется
      * только для строк с заполненным баллом; пустые строки игнорируются.
      */
-    public function importResults(Request $request, Olympiad $olympiad): RedirectResponse
+    public function importResults(Request $request, Olympiad $olympiad, ChunkedImportService $importer): JsonResponse
     {
         $school = $request->user()->school;
-        $schoolId = $school->id;
 
         if (! $olympiad->isEntryOpenFor($school)) {
-            return back()->withErrors(['file' => 'Ввод баллов по этой олимпиаде закрыт.']);
+            return response()->json(['errors' => ['file' => ['Ввод баллов по этой олимпиаде закрыт.']]], 422);
         }
 
         $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:5120'],
+            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:20480'],
         ]);
 
         $file = $request->file('file');
@@ -264,14 +269,25 @@ class OlympiadController extends Controller
             $other = Olympiad::find($parsed['code']);
             $name = $other ? "«{$other->subject}»" : "#{$parsed['code']}";
 
-            return back()->withErrors(['file' => "Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]);
+            return response()->json(['errors' => ['file' => ["Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]]], 422);
         }
 
-        // Номера строк для сообщений об ошибках — как в файле (1-based).
-        $rows = [];
-        foreach ($parsed['data'] as $k => $r) {
-            $rows[$parsed['offset'] + $k + 1] = $r;
-        }
+        $import = $importer->start(
+            $request->user()->id, 'school_she_results', 'Результаты ШЭ',
+            ['school_id' => $school->id, 'olympiad_id' => $olympiad->id, 'line_offset' => $parsed['offset']],
+            self::TEMPLATE_HEADER, $parsed['data'],
+        );
+
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
+
+    /** Обработка очередной части строк импорта результатов ШЭ. */
+    public function importResultsChunk(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): JsonResponse
+    {
+        $this->authorizeResultsImport($request, $bulkImport);
+
+        $olympiad = Olympiad::findOrFail($bulkImport->context['olympiad_id']);
+        $schoolId = (int) $bulkImport->context['school_id'];
 
         // Допустимые id учеников — только своей ОО (защита от подмены чужих id в файле).
         $ownStudents = Student::where('school_id', $schoolId)->pluck('real_grade', 'id');
@@ -282,109 +298,128 @@ class OlympiadController extends Controller
         // Технология: коды видов практик из справочника (вместо свободного ввода названий).
         $isTech = $this->isTechnology($olympiad);
         $codeMap = $isTech ? $this->techCodeMap() : [];
+        // Место работы учителя по умолчанию (если в файле пусто) — своя школа.
+        $defaultWorkplace = School::whereKey($schoolId)->value('full_name');
 
-        $created = 0;
-        $updated = 0;
-        $skipped = 0;
-        $errors = [];
+        $progress = $importer->processChunk($bulkImport, function (array $row, int $line, ImportResult $result) use ($olympiad, $ownStudents, $allowedGrades, $maxMap, $isTech, $codeMap, $defaultWorkplace) {
+            $this->applyResultRow($row, $line, $olympiad, $ownStudents, $allowedGrades, $maxMap, $isTech, $codeMap, $defaultWorkplace, $result);
+        });
 
-        foreach ($rows as $lineNo => $row) {
-            $idRaw = trim((string) ($row[0] ?? ''));
-            // Служебные строки (легенда кодов, пустые) — без ID, пропускаем без учёта.
-            if (! preg_match('/^\d+$/', $idRaw)) {
-                continue;
-            }
-            $studentId = (int) $idRaw;
-            // Колонка «Макс. балл» (индекс 5) — справочная, оператор её не заполняет; балл — индекс 6.
-            $scoreRaw = trim((string) ($row[6] ?? ''));
+        return response()->json($progress);
+    }
 
-            if ($scoreRaw === '') {
-                $skipped++;
-                continue;
-            }
-            if (! $ownStudents->has($studentId)) {
-                $errors[] = "строка $lineNo: ученик не найден в вашей ОО";
-                continue;
-            }
+    /** Выгрузка строк с ошибками фонового импорта результатов ШЭ. */
+    public function importResultsErrors(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): StreamedResponse
+    {
+        $this->authorizeResultsImport($request, $bulkImport);
 
-            $scoreNorm = str_replace(',', '.', $scoreRaw);
-            if (! is_numeric($scoreNorm) || (float) $scoreNorm < 0) {
-                $errors[] = "строка $lineNo: некорректный балл «{$scoreRaw}»";
-                continue;
-            }
-            $score = round((float) $scoreNorm, 2); // балл — до 2 знаков после запятой
+        return $importer->errorsCsv($bulkImport);
+    }
 
-            $realGrade = (int) $ownStudents->get($studentId);
-            $grade = (int) ($row[4] ?? 0) ?: $realGrade;
+    private function authorizeResultsImport(Request $request, BulkImport $bulkImport): void
+    {
+        abort_unless($bulkImport->type === 'school_she_results' && $bulkImport->user_id === $request->user()->id, 403);
+    }
 
-            // Ученик участвует за свой класс или выше, в пределах классов олимпиады.
-            if ($grade < $realGrade) {
-                $errors[] = "строка $lineNo: класс участия ниже класса обучения";
-                continue;
-            }
-            if ($allowedGrades && ! in_array($grade, $allowedGrades, true)) {
-                $errors[] = "строка $lineNo: класс $grade вне диапазона олимпиады";
-                continue;
-            }
-            // Балл не может превышать макс. балл класса (если он задан администратором).
-            if (isset($maxMap[$grade]) && $score > (float) $maxMap[$grade]) {
-                $errors[] = "строка $lineNo: балл $scoreRaw превышает максимум ({$maxMap[$grade]}) для класса $grade";
-                continue;
-            }
+    /** Обработка одной строки импорта результатов ШЭ (по ID ученика своей ОО). */
+    private function applyResultRow(array $row, int $lineNo, Olympiad $olympiad, $ownStudents, array $allowedGrades, array $maxMap, bool $isTech, array $codeMap, ?string $defaultWorkplace, ImportResult $result): void
+    {
+        $idRaw = trim((string) ($row[0] ?? ''));
+        // Служебные строки (легенда кодов, пустые) — без ID, пропускаем без учёта.
+        if (! preg_match('/^\d+$/', $idRaw)) {
+            return;
+        }
+        $studentId = (int) $idRaw;
+        // Колонка «Макс. балл» (индекс 5) — справочная, оператор её не заполняет; балл — индекс 6.
+        $scoreRaw = trim((string) ($row[6] ?? ''));
 
-            // Дополнительные поля протокола (необязательные). Макс. балл операторы не вводят.
-            $extra = array_filter([
-                'result_status' => self::STATUS_MAP[mb_strtolower(trim((string) ($row[7] ?? '')))] ?? null,
-                'prev_municipal_winner' => in_array(mb_strtolower(trim((string) ($row[8] ?? ''))), ['да', '1', 'true'], true) ?: null,
-                'teacher_name' => trim((string) ($row[9] ?? '')) ?: null,
-                'teacher_workplace' => trim((string) ($row[10] ?? '')) ?: null,
-            ], fn ($v) => $v !== null);
+        if ($scoreRaw === '') {
+            $result->skipped++;
 
-            // Профиль/вид практики — только для технологии (по коду из справочника).
-            if ($isTech) {
-                $codeRaw = trim((string) ($row[11] ?? ''));
-                if ($codeRaw !== '') {
-                    $entry = $codeMap[mb_strtolower($codeRaw)] ?? null;
-                    if ($entry === null) {
-                        $errors[] = "строка $lineNo: неизвестный код вида практики «{$codeRaw}»";
-                        continue;
-                    }
-                    $extra['profile'] = $entry['profile'];
-                    $extra['practice_types'] = $entry['practice'];
+            return;
+        }
+        if (! $ownStudents->has($studentId)) {
+            $result->fail($lineNo, 'ученик не найден в вашей ОО', $row);
+
+            return;
+        }
+
+        $scoreNorm = str_replace(',', '.', $scoreRaw);
+        if (! is_numeric($scoreNorm) || (float) $scoreNorm < 0) {
+            $result->fail($lineNo, "некорректный балл «{$scoreRaw}»", $row);
+
+            return;
+        }
+        $score = round((float) $scoreNorm, 2); // балл — до 2 знаков после запятой
+
+        $realGrade = (int) $ownStudents->get($studentId);
+        $grade = (int) ($row[4] ?? 0) ?: $realGrade;
+
+        // Ученик участвует за свой класс или выше, в пределах классов олимпиады.
+        if ($grade < $realGrade) {
+            $result->fail($lineNo, 'класс участия ниже класса обучения', $row);
+
+            return;
+        }
+        if ($allowedGrades && ! in_array($grade, $allowedGrades, true)) {
+            $result->fail($lineNo, "класс {$grade} вне диапазона олимпиады", $row);
+
+            return;
+        }
+        // Балл не может превышать макс. балл класса (если он задан администратором).
+        if (isset($maxMap[$grade]) && $score > (float) $maxMap[$grade]) {
+            $result->fail($lineNo, "балл {$scoreRaw} превышает максимум ({$maxMap[$grade]}) для класса {$grade}", $row);
+
+            return;
+        }
+
+        // Дополнительные поля протокола (необязательные). Макс. балл операторы не вводят.
+        $extra = array_filter([
+            'result_status' => self::STATUS_MAP[mb_strtolower(trim((string) ($row[7] ?? '')))] ?? null,
+            'prev_municipal_winner' => in_array(mb_strtolower(trim((string) ($row[8] ?? ''))), ['да', '1', 'true'], true) ?: null,
+            'teacher_name' => trim((string) ($row[9] ?? '')) ?: null,
+        ], fn ($v) => $v !== null);
+        // Место работы учителя: значение из файла, а если пусто — своя школа по умолчанию.
+        $workplace = trim((string) ($row[10] ?? '')) ?: $defaultWorkplace;
+        if ($workplace !== null) {
+            $extra['teacher_workplace'] = $workplace;
+        }
+
+        // Профиль/вид практики — только для технологии (по коду из справочника).
+        if ($isTech) {
+            $codeRaw = trim((string) ($row[11] ?? ''));
+            if ($codeRaw !== '') {
+                $entry = $codeMap[mb_strtolower($codeRaw)] ?? null;
+                if ($entry === null) {
+                    $result->fail($lineNo, "неизвестный код вида практики «{$codeRaw}»", $row);
+
+                    return;
                 }
-            }
-
-            // Ключ участия — (ученик, олимпиада, класс участия): один ученик может
-            // участвовать за несколько классов (несколько человеко-олимпиад).
-            $ho = HumanOlympiad::where('student_id', $studentId)
-                ->where('olympiad_id', $olympiad->id)
-                ->where('participation_grade', $grade)
-                ->first();
-
-            if ($ho) {
-                $ho->update(['score' => $score] + $extra);
-                $updated++;
-            } else {
-                HumanOlympiad::create([
-                    'student_id' => $studentId,
-                    'olympiad_id' => $olympiad->id,
-                    'participation_grade' => $grade,
-                    'score' => $score,
-                    'result_status' => $extra['result_status'] ?? 'participant',
-                ] + $extra);
-                $created++;
+                $extra['profile'] = $entry['profile'];
+                $extra['practice_types'] = $entry['practice'];
             }
         }
 
-        $summary = "Импорт завершён: создано $created, обновлено $updated, пропущено $skipped.";
-        if ($errors) {
-            // Предупреждение (не валидационная ошибка) — закрывается вручную, не блокирует.
-            return back()
-                ->with('success', $summary)
-                ->with('warning', 'Ошибки в строках — '.implode('; ', array_slice($errors, 0, 10)));
-        }
+        // Ключ участия — (ученик, олимпиада, класс участия): один ученик может
+        // участвовать за несколько классов (несколько человеко-олимпиад).
+        $ho = HumanOlympiad::where('student_id', $studentId)
+            ->where('olympiad_id', $olympiad->id)
+            ->where('participation_grade', $grade)
+            ->first();
 
-        return back()->with('success', $summary);
+        if ($ho) {
+            $ho->update(['score' => $score] + $extra);
+            $result->updated++;
+        } else {
+            HumanOlympiad::create([
+                'student_id' => $studentId,
+                'olympiad_id' => $olympiad->id,
+                'participation_grade' => $grade,
+                'score' => $score,
+                'result_status' => $extra['result_status'] ?? 'participant',
+            ] + $extra);
+            $result->created++;
+        }
     }
 
 }

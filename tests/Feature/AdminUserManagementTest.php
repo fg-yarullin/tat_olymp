@@ -71,6 +71,21 @@ class AdminUserManagementTest extends TestCase
             }));
     }
 
+    public function test_users_filtered_by_role(): void
+    {
+        $ate = Ate::firstOrCreate(['ate_code' => 'C'], ['name' => 'Район В', 'type' => 'isolated']);
+        User::factory()->create(['name' => 'Коорд В', 'role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        User::factory()->create(['name' => 'Супер В', 'role' => UserRole::SuperCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.users.index', ['role' => 'municipal_coordinator']))
+            ->assertInertia(fn ($page) => $page->where('users.data', function ($rows) {
+                $names = collect($rows)->pluck('name')->all();
+
+                return in_array('Коорд В', $names, true) && ! in_array('Супер В', $names, true);
+            }));
+    }
+
     public function test_non_admin_is_forbidden(): void
     {
         $operator = User::factory()->create(['role' => UserRole::SchoolOperator, 'is_active' => true]);

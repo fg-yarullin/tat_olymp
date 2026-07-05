@@ -1,7 +1,9 @@
+import ImportProgress from '@/Components/ImportProgress';
 import Modal from '@/Components/Modal';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useChunkedImport } from '@/Hooks/useChunkedImport';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const STATUS_LABELS = { active: 'Активен', graduated: 'Выпустился', transferring: 'Переводится', departed: 'Выбыл' };
 
@@ -52,14 +54,30 @@ export default function StudentsIndex({ students, letters, filters }) {
             : form.post(route('school.students.store'), opts);
     };
 
-    // Импорт
-    const importForm = useForm({ file: null });
+    // Импорт (по частям, с прогресс-баром)
+    const [importFile, setImportFile] = useState(null);
+    const [importKey, setImportKey] = useState(0);
+    const chunked = useChunkedImport({
+        startUrl: route('school.students.import'),
+        chunkUrl: (id) => route('school.students.import.chunk', id),
+        errorsUrl: (id) => route('school.students.import.errors', id),
+    });
     const submitImport = (e) => {
         e.preventDefault();
-        importForm.post(route('school.students.import'), {
-            forceFormData: true, preserveScroll: true, onSuccess: () => importForm.reset('file'),
-        });
+        chunked.run(importFile);
     };
+    const resetImport = () => {
+        chunked.reset();
+        setImportFile(null);
+        setImportKey((k) => k + 1); // пересоздаём <input type=file>, native не сбрасывается через value
+    };
+    // После завершения импорта обновляем список учащихся — прогресс-бар остаётся виден.
+    useEffect(() => {
+        if (chunked.progress?.done) {
+            router.reload({ only: ['students', 'letters'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chunked.progress?.done]);
 
     // Выбытие
     const [departing, setDeparting] = useState(null);
@@ -96,15 +114,19 @@ export default function StudentsIndex({ students, letters, filters }) {
                             className="rounded border border-indigo-300 px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50">
                             ↓ Шаблон (XLSX)
                         </a>
-                        <form onSubmit={submitImport} className="flex items-center gap-2">
-                            <input type="file" accept=".xlsx,.ods,.csv,.txt"
-                                onChange={(e) => importForm.setData('file', e.target.files[0])} className="text-sm" />
-                            <button type="submit" disabled={!importForm.data.file || importForm.processing}
-                                className="rounded bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
-                                Импорт
-                            </button>
-                        </form>
+                        {!chunked.progress && (
+                            <form onSubmit={submitImport} className="flex items-center gap-2">
+                                <input key={importKey} type="file" accept=".xlsx,.ods,.csv,.txt"
+                                    onChange={(e) => setImportFile(e.target.files[0] ?? null)} className="text-sm" />
+                                <button type="submit" disabled={!importFile || chunked.running}
+                                    className="rounded bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
+                                    Импорт
+                                </button>
+                            </form>
+                        )}
                     </div>
+
+                    <ImportProgress progress={chunked.progress} error={chunked.error} errorsHref={chunked.errorsHref} onReset={resetImport} />
 
                     <Modal show={!!departing} onClose={() => setDeparting(null)} maxWidth="lg">
                         {departing && (

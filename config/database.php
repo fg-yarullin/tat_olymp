@@ -59,6 +59,10 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Часовой пояс MySQL-сессии фиксируем явно (числовой офсет — не требует таблиц
+            // tzdata на сервере), чтобы поведение не зависело от настройки конкретного
+            // MySQL-хоста (локальный Docker для тестов и рабочий сервер были рассинхронизированы).
+            'timezone' => env('DB_TIMEZONE', '+03:00'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -79,6 +83,10 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Часовой пояс MySQL-сессии фиксируем явно (числовой офсет — не требует таблиц
+            // tzdata на сервере), чтобы поведение не зависело от настройки конкретного
+            // MySQL-хоста (локальный Docker для тестов и рабочий сервер были рассинхронизированы).
+            'timezone' => env('DB_TIMEZONE', '+03:00'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

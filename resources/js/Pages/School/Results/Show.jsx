@@ -1,17 +1,18 @@
 import ColumnsMenu from '@/Components/ColumnsMenu';
+import Countdown from '@/Components/Countdown';
+import ImportProgress from '@/Components/ImportProgress';
 import Modal from '@/Components/Modal';
 import ScoreCell from '@/Components/ScoreCell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useChunkedImport } from '@/Hooks/useChunkedImport';
 import { useStoredColumns } from '@/Hooks/useStoredColumns';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
 const STATUS_LABELS = { participant: 'Участник', prize_winner: 'Призёр', winner: 'Победитель' };
 // Российский формат дробных чисел: разделитель — запятая.
 const fmt = (n) => (n == null || n === '' ? '—' : String(n).replace('.', ','));
-const fmtDateTime = (iso) =>
-    new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 const blank = {
     student_id: '',
@@ -79,21 +80,30 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
         ...(tplLetter ? { letter: tplLetter } : {}),
     });
 
-    const importForm = useForm({ file: null });
-    // Ключ для пересоздания <input type=file> — нативный input не очищается через reset().
+    const [importFile, setImportFile] = useState(null);
+    // Ключ для пересоздания <input type=file> — нативный input не очищается через value/reset.
     const [importKey, setImportKey] = useState(0);
+    const chunked = useChunkedImport({
+        startUrl: route('school.olympiad.import', olympiad.id),
+        chunkUrl: (id) => route('school.olympiad.import.chunk', id),
+        errorsUrl: (id) => route('school.olympiad.import.errors', id),
+    });
     const submitImport = (e) => {
         e.preventDefault();
-        importForm.post(route('school.olympiad.import', olympiad.id), {
-            forceFormData: true,
-            preserveScroll: true,
-            // После загрузки возвращаем блок в рабочее состояние: чистим форму и сам input.
-            onFinish: () => {
-                importForm.reset('file');
-                setImportKey((k) => k + 1);
-            },
-        });
+        chunked.run(importFile);
     };
+    const resetImport = () => {
+        chunked.reset();
+        setImportFile(null);
+        setImportKey((k) => k + 1);
+    };
+    // После завершения импорта обновляем таблицу — прогресс-бар остаётся виден.
+    useEffect(() => {
+        if (chunked.progress?.done) {
+            router.reload({ only: ['participations', 'over_max_count', 'teachers'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chunked.progress?.done]);
 
     // Модальное окно ввода/редактирования участия
     const [showModal, setShowModal] = useState(false);
@@ -187,6 +197,71 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
         }
     };
 
+    // Массовое удаление: чекбоксы по строкам, «выбрать все по фильтру» и полная очистка олимпиады.
+    const [selected, setSelected] = useState(() => new Set());
+    const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+    const [showWipeModal, setShowWipeModal] = useState(false);
+    const [wipeConfirmText, setWipeConfirmText] = useState('');
+    const clearSelection = () => { setSelected(new Set()); setSelectAllFiltered(false); };
+    // Сброс выбора при смене страницы/фильтров — иначе можно случайно удалить не то, что видно на экране.
+    useEffect(() => {
+        clearSelection();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [participations.current_page, filters.q, filters.grade, filters.pgrade, filters.over, filters.sort, filters.dir]);
+
+    const pageIds = participations.data.map((p) => p.id);
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+    const selectedCount = selectAllFiltered ? participations.total : selected.size;
+    const toggleRow = (id) => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+    const toggleAllOnPage = () => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            if (allOnPageSelected) {
+                const next = new Set(prev);
+                pageIds.forEach((id) => next.delete(id));
+                return next;
+            }
+            return new Set([...prev, ...pageIds]);
+        });
+    };
+    // Текущий вид (фильтры/сортировка/страница) — чтобы сервер после удаления знал, куда
+    // вернуть оператора (и подвинул страницу назад, если текущая опустела).
+    const currentView = () => ({
+        q: filters.q || undefined,
+        sort: filters.sort !== 'default' ? filters.sort : undefined,
+        dir: filters.dir,
+        grade: filters.grade ?? undefined,
+        pgrade: filters.pgrade ?? undefined,
+        over: filters.over ? 1 : undefined,
+        page: participations.current_page,
+    });
+    const bulkDeleteSelected = () => {
+        if (selectedCount === 0) return;
+        if (!confirm(`Удалить выбранные результаты (${selectedCount})? Действие необратимо.`)) return;
+        const payload = {
+            ...currentView(),
+            ...(selectAllFiltered ? { mode: 'filtered' } : { mode: 'selected', ids: [...selected] }),
+        };
+        router.post(route('school.results.bulk-destroy', olympiad.id), payload, {
+            preserveScroll: true,
+            onSuccess: clearSelection,
+        });
+    };
+    const wipeAll = () => {
+        if (wipeConfirmText.trim() !== String(participations.total)) return;
+        router.post(route('school.results.bulk-destroy', olympiad.id), { ...currentView(), mode: 'all' }, {
+            preserveScroll: true,
+            onSuccess: () => { setShowWipeModal(false); setWipeConfirmText(''); clearSelection(); },
+        });
+    };
+
     return (
         <AuthenticatedLayout
             header={
@@ -214,17 +289,15 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
 
                     <div className="rounded-lg bg-white p-4 text-sm text-gray-600 shadow">
                         <b>{olympiad.subject}</b> · {LEVEL_LABELS[olympiad.level] ?? olympiad.level} уровень ·
-                        классы {olympiad.grades.join(', ')} ·{' '}
-                        {open ? (
-                            <span className="text-green-700">
-                                ввод открыт{olympiad.entry_deadline ? ` до ${fmtDateTime(olympiad.entry_deadline)}` : ''}
-                            </span>
-                        ) : (
-                            <span className="text-red-600">
-                                ввод закрыт{olympiad.entry_deadline ? ` (срок: ${fmtDateTime(olympiad.entry_deadline)})` : ''}
-                            </span>
-                        )}
+                        классы {olympiad.grades.join(', ')}
                     </div>
+
+                    <Countdown
+                        open={open}
+                        deadline={olympiad.entry_deadline}
+                        size="lg"
+                        closedLabel="Ввод результатов закрыт"
+                    />
 
                     <div className="rounded-lg bg-white p-4 shadow">
                         <h3 className="mb-2 text-sm font-semibold text-gray-800">Максимальные баллы по классам</h3>
@@ -284,15 +357,20 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
                                 )}
                             </div>
 
-                            <form onSubmit={submitImport} className="space-y-3 rounded-lg bg-white p-6 shadow">
+                            <div className="space-y-3 rounded-lg bg-white p-6 shadow">
                                 <h3 className="font-semibold text-gray-800">Массовый импорт</h3>
-                                <input key={importKey} type="file" accept=".xlsx,.ods,.csv,.txt"
-                                    onChange={(e) => importForm.setData('file', e.target.files[0] ?? null)} className="text-sm" />
-                                <button type="submit" disabled={!importForm.data.file || importForm.processing}
-                                    className="block rounded bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
-                                    Загрузить файл
-                                </button>
-                            </form>
+                                {!chunked.progress && (
+                                    <form onSubmit={submitImport} className="space-y-3">
+                                        <input key={importKey} type="file" accept=".xlsx,.ods,.csv,.txt"
+                                            onChange={(e) => setImportFile(e.target.files[0] ?? null)} className="text-sm" />
+                                        <button type="submit" disabled={!importFile || chunked.running}
+                                            className="block rounded bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
+                                            Загрузить файл
+                                        </button>
+                                    </form>
+                                )}
+                                <ImportProgress progress={chunked.progress} error={chunked.error} errorsHref={chunked.errorsHref} onReset={resetImport} />
+                            </div>
                         </div>
                     )}
 
@@ -352,8 +430,42 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
                                         + Добавить участие
                                     </button>
                                 )}
+                                {open && participations.total > 0 && (
+                                    <button onClick={() => setShowWipeModal(true)}
+                                        className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+                                        Удалить все результаты
+                                    </button>
+                                )}
                             </div>
                         </div>
+                        {open && selectedCount > 0 && (
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-indigo-50 px-6 py-3 text-sm">
+                                <span className="text-indigo-800">
+                                    {selectAllFiltered
+                                        ? `Выбраны все результаты по текущему фильтру: ${selectedCount}.`
+                                        : (
+                                            <>
+                                                Выбрано: {selectedCount}.{' '}
+                                                {allOnPageSelected && participations.total > pageIds.length && (
+                                                    <button type="button" onClick={() => setSelectAllFiltered(true)}
+                                                        className="font-medium text-indigo-700 hover:underline">
+                                                        Выбрать все {participations.total} по текущему фильтру
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    <button type="button" onClick={clearSelection} className="text-gray-500 hover:underline">
+                                        Отменить выбор
+                                    </button>
+                                    <button type="button" onClick={bulkDeleteSelected}
+                                        className="rounded bg-red-600 px-3 py-2 font-medium text-white hover:bg-red-700">
+                                        Удалить выбранные ({selectedCount})
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         {participations.data.length === 0 ? (
                             filters.over && over_max_count === 0 ? (
                                 <div className="px-6 py-8 text-center">
@@ -374,6 +486,12 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
                             <table className="min-w-full text-sm">
                                 <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                                     <tr>
+                                        {open && (
+                                            <th className="px-3 py-3">
+                                                <input type="checkbox" checked={selectAllFiltered || allOnPageSelected}
+                                                    onChange={toggleAllOnPage} />
+                                            </th>
+                                        )}
                                         <SortHeader col="fio" filters={filters} onSort={sortBy}>Ученик</SortHeader>
                                         <SortHeader col="real_grade" filters={filters} onSort={sortBy}>Кл.</SortHeader>
                                         <SortHeader col="participation_grade" filters={filters} onSort={sortBy}>Кл. уч.</SortHeader>
@@ -389,6 +507,12 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
                                 <tbody className="divide-y divide-gray-100">
                                     {participations.data.map((p) => (
                                         <tr key={p.id} className={p.over_max ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
+                                            {open && (
+                                                <td className="px-3 py-2">
+                                                    <input type="checkbox" checked={selectAllFiltered || selected.has(p.id)}
+                                                        onChange={() => toggleRow(p.id)} />
+                                                </td>
+                                            )}
                                             <td className="px-3 py-2 font-medium text-gray-800">{p.fio}</td>
                                             <td className="px-3 py-2 text-gray-600">{p.real_grade}{p.class_letter ? `-${p.class_letter}` : ''}</td>
                                             <td className="px-3 py-2 text-gray-600">{p.participation_grade}</td>
@@ -602,6 +726,29 @@ export default function ResultsShow({ olympiad, participations, filters, grade_o
                         <button type="button" onClick={applyAutoStatus}
                             className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">
                             Применить
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal show={showWipeModal} onClose={() => { setShowWipeModal(false); setWipeConfirmText(''); }} maxWidth="md">
+                <div className="space-y-4 p-6">
+                    <h3 className="font-semibold text-red-700">Удалить все результаты по этой олимпиаде</h3>
+                    <p className="text-sm text-gray-600">
+                        Будут удалены ВСЕ внесённые результаты вашей школы по этой олимпиаде — {participations.total}.
+                        Действие необратимо и не зависит от текущих фильтров. Чтобы подтвердить, введите число{' '}
+                        <b>{participations.total}</b>:
+                    </p>
+                    <input type="text" value={wipeConfirmText} onChange={(e) => setWipeConfirmText(e.target.value)}
+                        placeholder={String(participations.total)}
+                        className="w-full rounded border-gray-300 text-sm" />
+                    <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => { setShowWipeModal(false); setWipeConfirmText(''); }}
+                            className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                        <button type="button" disabled={wipeConfirmText.trim() !== String(participations.total)}
+                            onClick={wipeAll}
+                            className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                            Удалить всё ({participations.total})
                         </button>
                     </div>
                 </div>

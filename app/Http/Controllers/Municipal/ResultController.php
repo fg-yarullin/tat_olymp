@@ -4,15 +4,19 @@ namespace App\Http\Controllers\Municipal;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
+use App\Models\BulkImport;
 use App\Models\HumanOlympiad;
 use App\Models\MunicipalInvitationThreshold;
 use App\Models\Olympiad;
 use App\Models\ProtocolTemplate;
 use App\Models\School;
 use App\Models\Student;
+use App\Support\ChunkedImportService;
+use App\Support\ImportResult;
 use App\Support\OlympiadImportHeader;
 use App\Support\ScanArchiveImporter;
 use App\Support\SpreadsheetReader;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -33,6 +37,9 @@ class ResultController extends Controller
 {
     /** Результаты ШЭ/прошлого МЭ, дающие право участвовать в МЭ. */
     private const QUALIFYING = ['winner', 'prize_winner'];
+
+    /** Колонки шаблона массового ввода первичных баллов МЭ. */
+    private const SCORE_TEMPLATE_HEADER = ['ID', 'ФИО', 'Школа', 'Класс', 'Класс участия', 'Макс. балл', 'Балл'];
 
     public function index(Request $request): Response
     {
@@ -77,11 +84,7 @@ class ResultController extends Controller
         $pgrade = $request->filled('pgrade') ? (int) $request->query('pgrade') : null;
         $schoolFilter = $request->filled('school') ? (int) $request->query('school') : null;
 
-        $base = HumanOlympiad::query()
-            ->where('human_olympiad.olympiad_id', $olympiad->id)
-            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
-            ->join('schools', 'schools.id', '=', 'students.school_id')
-            ->whereIn('schools.ate_id', $ateIds)
+        $base = $this->participantBaseQuery($olympiad, $ateIds)
             ->when($onlyScored, fn ($qq) => $qq->whereNotNull('human_olympiad.primary_score'));
 
         $gradeOptions = (clone $base)->distinct()->orderBy('students.real_grade')->pluck('students.real_grade');
@@ -90,11 +93,7 @@ class ResultController extends Controller
             ->pluck('schools.short_name', 'schools.id')
             ->map(fn ($name, $id) => ['id' => $id, 'short_name' => $name])->values();
 
-        $participants = (clone $base)
-            ->when($q !== '', fn ($qq) => $qq->where('students.fio', 'like', "%{$q}%"))
-            ->when($grade !== null, fn ($qq) => $qq->where('students.real_grade', $grade))
-            ->when($pgrade !== null, fn ($qq) => $qq->where('human_olympiad.participation_grade', $pgrade))
-            ->when($schoolFilter !== null, fn ($qq) => $qq->where('students.school_id', $schoolFilter))
+        $participants = $this->applyParticipantFilters(clone $base, $q, $grade, $pgrade, $schoolFilter)
             ->with(['student:id,fio,real_grade,school_id,from_other_region,origin_region', 'student.school:id,short_name'])
             ->select('human_olympiad.*')
             ->orderBy('human_olympiad.participation_grade')->orderBy('students.fio')
@@ -124,6 +123,85 @@ class ResultController extends Controller
             'pgrade_options' => $pgradeOptions,
             'school_options' => $schoolOptions,
         ];
+    }
+
+    /** Применяет фильтры списка участников (поиск/классы/школа) к переданному билдеру. */
+    private function applyParticipantFilters($query, string $q, ?int $grade, ?int $pgrade, ?int $schoolFilter)
+    {
+        return $query
+            ->when($q !== '', fn ($qq) => $qq->where('students.fio', 'like', "%{$q}%"))
+            ->when($grade !== null, fn ($qq) => $qq->where('students.real_grade', $grade))
+            ->when($pgrade !== null, fn ($qq) => $qq->where('human_olympiad.participation_grade', $pgrade))
+            ->when($schoolFilter !== null, fn ($qq) => $qq->where('students.school_id', $schoolFilter));
+    }
+
+    /** Базовый запрос участников МЭ этого АТЕ по олимпиаде (без фильтров/пагинации). */
+    private function participantBaseQuery(Olympiad $olympiad, array $ateIds)
+    {
+        return HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds);
+    }
+
+    /**
+     * Массовое удаление участников МЭ: по выбранным ID, по текущему фильтру состава,
+     * либо полностью весь состав по этой олимпиаде (в рамках зоны координатора).
+     */
+    public function bulkDestroy(Request $request, Olympiad $olympiad): RedirectResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateId = $request->user()->ate_id;
+        $ateIds = $request->user()->municipalAteScope();
+
+        if (! $olympiad->isEntryOpenForAte($ateId, 'primary')) {
+            return back()->withErrors(['participation' => 'Формирование состава по этой олимпиаде закрыто.']);
+        }
+
+        $validated = $request->validate([
+            'mode' => ['required', Rule::in(['selected', 'filtered', 'all'])],
+            'ids' => ['required_if:mode,selected', 'array'],
+            'ids.*' => ['integer'],
+        ]);
+
+        if ($validated['mode'] === 'selected') {
+            $count = $this->participantBaseQuery($olympiad, $ateIds)
+                ->whereIn('human_olympiad.id', $validated['ids'])
+                ->delete();
+        } elseif ($validated['mode'] === 'filtered') {
+            $q = trim((string) $request->input('q', ''));
+            $grade = $request->filled('grade') ? (int) $request->input('grade') : null;
+            $pgrade = $request->filled('pgrade') ? (int) $request->input('pgrade') : null;
+            $schoolFilter = $request->filled('school') ? (int) $request->input('school') : null;
+            $count = $this->applyParticipantFilters(
+                $this->participantBaseQuery($olympiad, $ateIds), $q, $grade, $pgrade, $schoolFilter
+            )->delete();
+        } else {
+            $count = $this->participantBaseQuery($olympiad, $ateIds)->delete();
+        }
+
+        // Если удалили все строки текущей страницы — переходим на последнюю существующую
+        // страницу того же вида, иначе координатор увидит пустой список при живой пагинации.
+        $q = trim((string) $request->input('q', ''));
+        $grade = $request->filled('grade') ? (int) $request->input('grade') : null;
+        $pgrade = $request->filled('pgrade') ? (int) $request->input('pgrade') : null;
+        $schoolFilter = $request->filled('school') ? (int) $request->input('school') : null;
+        $remaining = $this->applyParticipantFilters(
+            $this->participantBaseQuery($olympiad, $ateIds), $q, $grade, $pgrade, $schoolFilter
+        )->count();
+        $lastPage = max(1, (int) ceil($remaining / 25));
+        $requestedPage = max(1, (int) $request->input('page', 1));
+        $targetPage = min($requestedPage, $lastPage);
+
+        return redirect()->route('municipal.results.show', array_filter([
+            'olympiad' => $olympiad->id,
+            'q' => $q !== '' ? $q : null,
+            'grade' => $grade,
+            'pgrade' => $pgrade,
+            'school' => $schoolFilter,
+            'page' => $targetPage > 1 ? $targetPage : null,
+        ], fn ($v) => $v !== null))->with('success', "Удалено участников: {$count}.");
     }
 
     /** Страница «Состав МЭ» — формирование списка приглашённых. */
@@ -1084,6 +1162,165 @@ class ResultController extends Controller
         }
 
         return back()->with('success', $message);
+    }
+
+    /** Шаблон массового ввода первичных баллов МЭ: состав в области видимости координатора. */
+    public function scoreTemplateXlsx(Request $request, Olympiad $olympiad): StreamedResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateIds = $request->user()->municipalAteScope();
+
+        $participants = HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds)
+            ->with(['student:id,fio,real_grade,school_id', 'student.school:id,short_name'])
+            ->select('human_olympiad.*')
+            ->orderBy('human_olympiad.participation_grade')->orderBy('students.fio')
+            ->get();
+
+        $olympiad->loadMissing('academicYear');
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Баллы МЭ');
+        $header = self::SCORE_TEMPLATE_HEADER;
+        $headerRow = OlympiadImportHeader::write($sheet, $olympiad);
+        foreach ($header as $i => $title) {
+            $sheet->setCellValue(Coordinate::stringFromColumnIndex($i + 1).$headerRow, $title);
+        }
+
+        $row = $headerRow + 1;
+        foreach ($participants as $h) {
+            $s = $h->student;
+            $values = [$h->id, $s?->fio, $s?->school?->short_name, $s?->real_grade, $h->participation_grade, $olympiad->maxScoreFor((int) $h->participation_grade), $h->primary_score];
+            foreach ($values as $i => $v) {
+                $sheet->setCellValueExplicit(Coordinate::stringFromColumnIndex($i + 1).$row, (string) $v, DataType::TYPE_STRING);
+            }
+            $row++;
+        }
+        foreach ($header as $i => $title) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i + 1))->setAutoSize(true);
+        }
+
+        $filename = 'bally_ME_'.preg_replace('/[^\w\-]+/u', '_', $olympiad->subject).'.xlsx';
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            (new Xlsx($spreadsheet))->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /** Запуск фонового импорта первичных баллов МЭ по ID участия (по частям, с прогресс-баром). */
+    public function importScores(Request $request, Olympiad $olympiad, ChunkedImportService $importer): JsonResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateId = $request->user()->ate_id;
+
+        if (! $olympiad->isEntryOpenForAte($ateId, 'primary')) {
+            return response()->json(['errors' => ['file' => ['Ввод первичных результатов закрыт.']]], 422);
+        }
+
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:20480']]);
+
+        $file = $request->file('file');
+        $parsed = OlympiadImportHeader::parse(
+            SpreadsheetReader::rows($file->getRealPath(), $file->getClientOriginalExtension())
+        );
+        if ($parsed['code'] !== null && $parsed['code'] !== $olympiad->id) {
+            $other = Olympiad::find($parsed['code']);
+            $name = $other ? "«{$other->subject}»" : "#{$parsed['code']}";
+
+            return response()->json(['errors' => ['file' => ["Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]]], 422);
+        }
+
+        $import = $importer->start(
+            $request->user()->id, 'municipal_primary_scores', 'Первичные баллы МЭ',
+            ['olympiad_id' => $olympiad->id, 'line_offset' => $parsed['offset']],
+            self::SCORE_TEMPLATE_HEADER, $parsed['data'],
+        );
+
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
+
+    /** Обработка очередной части строк импорта баллов МЭ. */
+    public function importScoresChunk(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): JsonResponse
+    {
+        $this->authorizeScoreImport($request, $bulkImport);
+
+        $olympiad = Olympiad::findOrFail($bulkImport->context['olympiad_id']);
+        $ateIds = $request->user()->municipalAteScope();
+
+        // Карта ID участия → участие (только в области видимости координатора).
+        $works = HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds)
+            ->select('human_olympiad.*')
+            ->get()
+            ->keyBy('id');
+
+        $progress = $importer->processChunk($bulkImport, function (array $row, int $line, ImportResult $result) use ($olympiad, $works) {
+            $this->applyMunicipalScoreRow($row, $line, $olympiad, $works, $result);
+        });
+
+        return response()->json($progress);
+    }
+
+    /** Выгрузка строк с ошибками фонового импорта баллов МЭ. */
+    public function importScoresErrors(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): StreamedResponse
+    {
+        $this->authorizeScoreImport($request, $bulkImport);
+
+        return $importer->errorsCsv($bulkImport);
+    }
+
+    private function authorizeScoreImport(Request $request, BulkImport $bulkImport): void
+    {
+        abort_unless($bulkImport->type === 'municipal_primary_scores' && $bulkImport->user_id === $request->user()->id, 403);
+    }
+
+    /** Обработка одной строки импорта балла МЭ (по ID участия; балл — последняя колонка). */
+    private function applyMunicipalScoreRow(array $row, int $line, Olympiad $olympiad, $works, ImportResult $result): void
+    {
+        $idRaw = trim((string) ($row[0] ?? ''));
+        if (! preg_match('/^\d+$/', $idRaw)) {
+            return; // служебные/пустые строки без ID
+        }
+        $participationId = (int) $idRaw;
+        $rawScore = trim((string) ($row[count($row) - 1] ?? ''));
+
+        $work = $works->get($participationId);
+        if (! $work) {
+            $result->fail($line, 'участие не найдено в области видимости', $row);
+
+            return;
+        }
+        if ($rawScore === '') {
+            $result->skipped++;
+
+            return;
+        }
+        $norm = str_replace(',', '.', $rawScore);
+        if (! is_numeric($norm) || (float) $norm < 0) {
+            $result->fail($line, "некорректный балл «{$rawScore}»", $row);
+
+            return;
+        }
+        $score = round((float) $norm, 2);
+        $max = $olympiad->maxScoreFor((int) $work->participation_grade);
+        if ($max !== null && $score > $max) {
+            $result->fail($line, "балл {$rawScore} превышает максимальный ({$max}) для класса {$work->participation_grade}", $row);
+
+            return;
+        }
+
+        $work->primary_score = $score;
+        $work->question_scores = null;
+        $work->save();
+        $result->updated++;
     }
 
     /** Ввод первичного балла МЭ (единым числом или по заданиям — тогда сумма); итог авто. */

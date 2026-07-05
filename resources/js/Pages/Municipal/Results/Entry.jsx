@@ -1,10 +1,12 @@
 import ColumnsMenu from '@/Components/ColumnsMenu';
+import ImportProgress from '@/Components/ImportProgress';
 import Modal from '@/Components/Modal';
 import ScoreCell from '@/Components/ScoreCell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useChunkedImport } from '@/Hooks/useChunkedImport';
 import { useStoredColumns } from '@/Hooks/useStoredColumns';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
 const fmt = (n) => (n == null || n === '' ? '—' : String(n).replace('.', ','));
@@ -79,6 +81,31 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
     };
     const appealMax = appealRow ? olympiad.max_scores?.[appealRow.participation_grade] : undefined;
 
+    // Массовый ввод первичных баллов из XLSX (по частям, с прогресс-баром).
+    const [importOpen, setImportOpen] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const scoresImport = useChunkedImport({
+        startUrl: route('municipal.results.import-scores', olympiad.id),
+        chunkUrl: (id) => route('municipal.results.import-scores.chunk', id),
+        errorsUrl: (id) => route('municipal.results.import-scores.errors', id),
+    });
+    const submitScoresImport = (e) => {
+        e.preventDefault();
+        scoresImport.run(importFile);
+    };
+    const closeScoresImport = () => {
+        setImportOpen(false);
+        scoresImport.reset();
+        setImportFile(null);
+    };
+    // После завершения импорта обновляем список участников — прогресс-бар остаётся виден.
+    useEffect(() => {
+        if (scoresImport.progress?.done) {
+            router.reload({ only: ['participants'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scoresImport.progress?.done]);
+
     return (
         <AuthenticatedLayout
             header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Результаты МЭ · {olympiad.subject}</h2>}
@@ -91,12 +118,26 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                         <Link href={route('municipal.results.index')} className="text-sm text-gray-500 hover:underline">
                             ← К списку олимпиад
                         </Link>
-                        {olympiad.has_protocol_template && participants.total > 0 && (
-                            <a href={route('municipal.results.protocol', olympiad.id)}
-                                className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-                                ↓ Протокол МЭ (XLSX)
-                            </a>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {questionCount === 0 && entryOpen && participants.total > 0 && (
+                                <>
+                                    <a href={route('municipal.results.score-template', olympiad.id)}
+                                        className="rounded border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                                        ↓ Шаблон баллов (XLSX)
+                                    </a>
+                                    <button onClick={() => { scoresImport.reset(); setImportFile(null); setImportOpen(true); }}
+                                        className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+                                        Массовый ввод баллов
+                                    </button>
+                                </>
+                            )}
+                            {olympiad.has_protocol_template && participants.total > 0 && (
+                                <a href={route('municipal.results.protocol', olympiad.id)}
+                                    className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+                                    ↓ Протокол МЭ (XLSX)
+                                </a>
+                            )}
+                        </div>
                     </div>
 
                     {/* Вкладки по олимпиаде */}
@@ -332,6 +373,32 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                         </div>
                     </form>
                 )}
+            </Modal>
+
+            <Modal show={importOpen} onClose={closeScoresImport} maxWidth="lg">
+                <form onSubmit={submitScoresImport} className="space-y-4 p-6">
+                    <h3 className="font-semibold text-gray-800">Массовый ввод первичных баллов</h3>
+                    <p className="text-xs text-gray-500">
+                        Скачайте шаблон (XLSX), заполните колонку <b>Балл</b> и загрузите этот же файл. Балл
+                        сопоставляется по ID участия из шаблона; код олимпиады в шапке сверяется.
+                    </p>
+                    {!scoresImport.progress && (
+                        <>
+                            <div>
+                                <input type="file" accept=".xlsx,.ods,.csv,.txt"
+                                    onChange={(e) => setImportFile(e.target.files[0] ?? null)}
+                                    className="block w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm" />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button type="button" onClick={closeScoresImport} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                                <button type="submit" disabled={scoresImport.running || !importFile}
+                                    className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Загрузить</button>
+                            </div>
+                        </>
+                    )}
+                    <ImportProgress progress={scoresImport.progress} error={scoresImport.error} errorsHref={scoresImport.errorsHref}
+                        onReset={() => { scoresImport.reset(); setImportFile(null); }} />
+                </form>
             </Modal>
         </AuthenticatedLayout>
     );

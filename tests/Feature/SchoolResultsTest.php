@@ -65,6 +65,27 @@ class SchoolResultsTest extends TestCase
         ]);
     }
 
+    private function csv(array $lines): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'imp').'.csv';
+        file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
+
+        return new UploadedFile($path, 'r.csv', 'text/csv', null, true);
+    }
+
+    /** Запускает импорт результатов ШЭ (по частям) и доводит его до завершения; возвращает итог. */
+    private function runImport(User $operator, Olympiad $olympiad, UploadedFile $file): array
+    {
+        $this->actingAs($operator);
+        $start = $this->post(route('school.olympiad.import', $olympiad), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('school.olympiad.import.chunk', $start['id']))->json();
+        }
+
+        return $prog;
+    }
+
     public function test_inline_score_autosave_updates_only_score(): void
     {
         $school = $this->makeSchool();
@@ -337,11 +358,72 @@ class SchoolResultsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $file])
-            ->assertSessionHasNoErrors();
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(2, $prog['created']);
 
         $this->assertSame(2, HumanOlympiad::where('student_id', $student->id)->count());
+    }
+
+    public function test_import_processes_over_multiple_chunks_with_correct_lines(): void
+    {
+        $school = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        $lines = ['ID;ФИО;ДР;Класс;Класс участия;Макс. балл;Балл'];
+        $studentIds = [];
+        for ($k = 0; $k < 200; $k++) {
+            $s = $this->student($school, 7);
+            $studentIds[] = $s->id;
+            $lines[] = "{$s->id};Уч;2012-01-01;7;7;;80";
+        }
+        // Одна ошибочная строка (несуществующий ID) — проверяем правильный номер строки в CSV ошибок.
+        $lines[] = '999999;Чужой;2012-01-01;7;7;;80';
+        $path = tempnam(sys_get_temp_dir(), 'imp').'.csv';
+        file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
+        $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
+
+        $this->actingAs($this->operator($school));
+        $start = $this->post(route('school.olympiad.import', $olympiad), ['file' => $file])->json();
+        $this->assertSame(201, $start['total']);
+
+        $chunks = 0;
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('school.olympiad.import.chunk', $start['id']))->json();
+            $chunks++;
+        }
+
+        $this->assertGreaterThanOrEqual(2, $chunks);
+        $this->assertSame(200, $prog['created']);
+        $this->assertSame(1, $prog['failed']);
+        $this->assertSame(200, HumanOlympiad::where('olympiad_id', $olympiad->id)->count());
+
+        // Строка 202 в файле (1 заголовок + 200 успешных + ошибочная строка).
+        $errCsv = $this->get(route('school.olympiad.import.errors', $start['id']))->streamedContent();
+        $this->assertStringContainsString('999999', $errCsv);
+    }
+
+    public function test_import_defaults_teacher_workplace_to_own_school_when_blank(): void
+    {
+        $school = $this->makeSchool(); // full_name = 'Школа'
+        $withName = $this->student($school, 7);
+        $withoutName = $this->student($school, 7);
+        $olympiad = $this->olympiad();
+
+        $file = $this->csv([
+            'ID;ФИО;ДР;Класс;Класс участия;Макс. балл;Балл;Статус;ПризерМЭ;Учитель;Место работы',
+            "{$withName->id};Уч;2012-01-01;7;7;;50;;;Иванов И.И.;", // учитель заполнен, место работы — пусто
+            "{$withoutName->id};Уч;2012-01-01;7;7;;60;;;;", // и учитель, и место работы пусты
+        ]);
+
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(2, $prog['created']);
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $withName->id, 'teacher_name' => 'Иванов И.И.', 'teacher_workplace' => 'Школа',
+        ]);
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $withoutName->id, 'teacher_workplace' => 'Школа',
+        ]);
     }
 
     public function test_manual_store_saves_protocol_fields(): void
@@ -379,9 +461,8 @@ class SchoolResultsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $file])
-            ->assertSessionHasNoErrors();
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(1, $prog['created']);
 
         $this->assertDatabaseHas('human_olympiad', [
             'student_id' => $student->id, 'participation_grade' => 11,
@@ -476,9 +557,8 @@ class SchoolResultsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $file])
-            ->assertSessionHasNoErrors();
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(1, $prog['created']);
 
         $this->assertDatabaseHas('human_olympiad', [
             'student_id' => $student->id, 'profile' => null, 'practice_types' => null,
@@ -490,7 +570,7 @@ class SchoolResultsTest extends TestCase
         $year = AcademicYear::firstOrCreate(['name' => '2025/2026'], ['status' => 'current']);
 
         return Olympiad::create([
-            'academic_year_id' => $year->id, 'subject' => 'Технология', 'stage' => 'school',
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'stage' => 'school',
             'grades' => '5,6,7,8,9,10,11', 'date_held' => '2025-11-15', 'status' => 'grading',
         ]);
     }
@@ -510,9 +590,8 @@ class SchoolResultsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $file])
-            ->assertSessionHasNoErrors();
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(1, $prog['created']);
 
         $this->assertDatabaseHas('human_olympiad', [
             'student_id' => $student->id,
@@ -536,9 +615,8 @@ class SchoolResultsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new UploadedFile($path, 'r.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $file])
-            ->assertSessionHas('warning');
+        $prog = $this->runImport($this->operator($school), $olympiad, $file);
+        $this->assertSame(1, $prog['failed']);
 
         $this->assertDatabaseMissing('human_olympiad', ['student_id' => $student->id]);
     }
@@ -548,5 +626,107 @@ class SchoolResultsTest extends TestCase
         $admin = User::factory()->create(['role' => UserRole::Admin, 'is_active' => true]);
 
         $this->actingAs($admin)->get(route('school.results.index'))->assertForbidden();
+    }
+
+    public function test_bulk_destroy_selected_ids(): void
+    {
+        $school = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        $s1 = $this->student($school, 7);
+        $s2 = $this->student($school, 7);
+        $s3 = $this->student($school, 7);
+        $h1 = HumanOlympiad::create(['student_id' => $s1->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+        $h2 = HumanOlympiad::create(['student_id' => $s2->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+        HumanOlympiad::create(['student_id' => $s3->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'selected', 'ids' => [$h1->id, $h2->id]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(1, HumanOlympiad::where('olympiad_id', $olympiad->id)->count());
+        $this->assertDatabaseMissing('human_olympiad', ['id' => $h1->id]);
+    }
+
+    public function test_bulk_destroy_filtered_by_grade(): void
+    {
+        $school = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        $s7 = $this->student($school, 7);
+        $s8 = $this->student($school, 8);
+        HumanOlympiad::create(['student_id' => $s7->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+        HumanOlympiad::create(['student_id' => $s8->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 8]);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'filtered', 'grade' => 7])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(1, HumanOlympiad::where('olympiad_id', $olympiad->id)->count());
+        $this->assertDatabaseHas('human_olympiad', ['student_id' => $s8->id]);
+    }
+
+    public function test_bulk_destroy_all_wipes_only_own_school(): void
+    {
+        $school = $this->makeSchool();
+        $otherSchool = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        $mine = $this->student($school, 7);
+        $other = $this->student($otherSchool, 7);
+        HumanOlympiad::create(['student_id' => $mine->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+        HumanOlympiad::create(['student_id' => $other->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'all'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseMissing('human_olympiad', ['student_id' => $mine->id]);
+        $this->assertDatabaseHas('human_olympiad', ['student_id' => $other->id]);
+    }
+
+    public function test_bulk_destroy_ignores_ids_from_other_school(): void
+    {
+        $school = $this->makeSchool();
+        $otherSchool = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        $other = $this->student($otherSchool, 7);
+        $h = HumanOlympiad::create(['student_id' => $other->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'selected', 'ids' => [$h->id]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', ['id' => $h->id]);
+    }
+
+    public function test_bulk_destroy_redirects_to_previous_page_when_current_page_empties(): void
+    {
+        $school = $this->makeSchool();
+        $olympiad = $this->olympiad();
+        // 26 участий → 2 страницы по 25; удаляем единственную строку 2-й страницы.
+        $ids = [];
+        for ($i = 0; $i < 26; $i++) {
+            $student = $this->student($school, 7);
+            $ids[] = HumanOlympiad::create(['student_id' => $student->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7])->id;
+        }
+        $lastId = end($ids);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'selected', 'ids' => [$lastId], 'page' => 2])
+            ->assertRedirect(route('school.results.show', $olympiad));
+
+        $this->assertSame(25, HumanOlympiad::where('olympiad_id', $olympiad->id)->count());
+    }
+
+    public function test_bulk_destroy_blocked_when_input_closed(): void
+    {
+        $school = $this->makeSchool();
+        $olympiad = $this->olympiad('published');
+        $student = $this->student($school, 7);
+        $h = HumanOlympiad::create(['student_id' => $student->id, 'olympiad_id' => $olympiad->id, 'participation_grade' => 7]);
+
+        $this->actingAs($this->operator($school))
+            ->post(route('school.results.bulk-destroy', $olympiad), ['mode' => 'selected', 'ids' => [$h->id]])
+            ->assertSessionHasErrors('participation');
+
+        $this->assertDatabaseHas('human_olympiad', ['id' => $h->id]);
     }
 }

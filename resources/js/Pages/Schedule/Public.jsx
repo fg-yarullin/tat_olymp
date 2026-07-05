@@ -60,7 +60,6 @@ export default function SchedulePublic({ olympiads = [] }) {
                                         <tr>
                                             <th className="px-5 py-3">Олимпиада</th>
                                             <th className="px-5 py-3">Проведение</th>
-                                            <th className="px-5 py-3">Публикация результатов</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
@@ -71,11 +70,6 @@ export default function SchedulePublic({ olympiads = [] }) {
                                                     <div className="text-xs text-gray-400">классы {gradesLabel(o.grades)}</div>
                                                 </td>
                                                 <td className="px-5 py-3 whitespace-nowrap text-gray-600">{fmtDate(o.start)}</td>
-                                                <td className="px-5 py-3 whitespace-nowrap text-gray-600">
-                                                    {o.published_at
-                                                        ? fmtDate(o.published_at)
-                                                        : fmtDate(o.publication?.date)}
-                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>

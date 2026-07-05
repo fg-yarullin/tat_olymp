@@ -88,7 +88,7 @@ class ProtocolConstructorTest extends TestCase
 
     public function test_seeder_creates_default_templates(): void
     {
-        Subject::create(['name' => 'Технология', 'is_active' => true]);
+        Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
         Subject::create(['name' => 'Астрономия', 'is_active' => true]);
 
         $this->seed(\Database\Seeders\ProtocolTemplateSeeder::class);
@@ -99,7 +99,7 @@ class ProtocolConstructorTest extends TestCase
 
         // Технология = общий МЭ + 2 колонки
         $tech = ProtocolTemplate::where('stage', 'municipal')
-            ->whereHas('subject', fn ($q) => $q->where('name', 'Технология'))->first();
+            ->whereHas('subject', fn ($q) => $q->where('name', 'Труд (технология)'))->first();
         $this->assertSame(21, $tech->columns()->count());
 
         // Астрономия: есть группа «Вопросы» и ключи question:*/appeal:*

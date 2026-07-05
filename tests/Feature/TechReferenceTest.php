@@ -76,7 +76,7 @@ class TechReferenceTest extends TestCase
     {
         $this->seed(\Database\Seeders\TechReferenceSeeder::class);
         $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
-        $tech = Subject::create(['name' => 'Технология', 'is_active' => true]);
+        $tech = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
         $math = Subject::create(['name' => 'Математика', 'is_active' => true]);
 
         $ate = Ate::create(['ate_code' => '10', 'name' => 'АТЕ', 'type' => 'isolated']);
@@ -88,7 +88,7 @@ class TechReferenceTest extends TestCase
         $operator = User::factory()->create(['role' => UserRole::SchoolOperator, 'school_id' => $school->id, 'is_active' => true]);
 
         $techOl = Olympiad::create([
-            'academic_year_id' => $year->id, 'subject' => 'Технология', 'subject_id' => $tech->id,
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $tech->id,
             'stage' => 'school', 'grades' => '7,8,9', 'date_held' => '2025-11-15', 'status' => 'grading',
         ]);
         $mathOl = Olympiad::create([

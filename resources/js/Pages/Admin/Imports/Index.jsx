@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 
 // Импорт учётных записей по частям (чанками) с прогресс-баром — без таймаута и без очереди/воркера.
 function BatchImportCard({ title, columns, startRoute, count, template }) {
@@ -38,6 +38,14 @@ function BatchImportCard({ title, columns, startRoute, count, template }) {
 
     const reset = () => { setProgress(null); setError(''); };
     const pct = progress && progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : (progress?.done ? 100 : 0);
+
+    // После завершения импорта обновляем счётчики «в базе» на карточках.
+    useEffect(() => {
+        if (progress?.done) {
+            router.reload({ only: ['counts', 'coordinatorsCount'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [progress?.done]);
 
     return (
         <form onSubmit={run} className="space-y-3 rounded bg-white p-6 shadow">

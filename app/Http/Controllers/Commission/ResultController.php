@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Commission;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
+use App\Models\BulkImport;
 use App\Models\HumanOlympiad;
 use App\Models\Olympiad;
+use App\Support\ChunkedImportService;
+use App\Support\ImportResult;
 use App\Support\OlympiadImportHeader;
 use App\Support\SpreadsheetReader;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -25,6 +29,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ResultController extends Controller
 {
+    /** Колонки шаблона массового ввода баллов по шифру. */
+    private const SCORE_TEMPLATE_HEADER = ['Шифр', 'Класс участия', 'Макс. балл', 'Балл'];
+
     public function index(Request $request): Response
     {
         $currentYearId = AcademicYear::where('status', 'current')->value('id');
@@ -172,17 +179,17 @@ class ResultController extends Controller
      * При покомандном вводе (question_count>0) балл из файла пишется как итоговый primary_score,
      * покомандная разбивка очищается.
      */
-    public function importPrimary(Request $request, Olympiad $olympiad): RedirectResponse
+    /** Запуск фонового импорта первичных баллов по шифру (по частям, с прогресс-баром). */
+    public function importPrimary(Request $request, Olympiad $olympiad, ChunkedImportService $importer): JsonResponse
     {
         $this->authorizeChair($request, $olympiad);
 
         if (! $olympiad->isEntryOpenGlobal('primary')) {
-            return back()->withErrors(['file' => 'Ввод первичных результатов закрыт.']);
+            return response()->json(['errors' => ['file' => ['Ввод первичных результатов закрыт.']]], 422);
         }
 
-        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:10240']]);
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:20480']]);
 
-        $ateIds = $request->user()->municipalAteScope(); // зонтик Казани → районы; иначе [ate_id]
         $file = $request->file('file');
         $parsed = OlympiadImportHeader::parse(
             SpreadsheetReader::rows($file->getRealPath(), $file->getClientOriginalExtension())
@@ -191,9 +198,25 @@ class ResultController extends Controller
             $other = Olympiad::find($parsed['code']);
             $name = $other ? "«{$other->subject}»" : "#{$parsed['code']}";
 
-            return back()->withErrors(['file' => "Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]);
+            return response()->json(['errors' => ['file' => ["Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]]], 422);
         }
-        $rows = $parsed['data'];
+
+        $import = $importer->start(
+            $request->user()->id, 'commission_primary_scores', 'Первичные баллы (по шифру)',
+            ['olympiad_id' => $olympiad->id, 'line_offset' => $parsed['offset']],
+            self::SCORE_TEMPLATE_HEADER, $parsed['data'],
+        );
+
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
+
+    /** Обработка очередной части строк импорта баллов по шифру. */
+    public function importPrimaryChunk(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): JsonResponse
+    {
+        $this->authorizeImport($request, $bulkImport);
+
+        $olympiad = Olympiad::findOrFail($bulkImport->context['olympiad_id']);
+        $ateIds = $request->user()->municipalAteScope(); // зонтик Казани → районы; иначе [ate_id]
 
         // Карта шифр → работа (только зашифрованные работы своего АТЕ в этой олимпиаде).
         $works = HumanOlympiad::query()
@@ -203,54 +226,68 @@ class ResultController extends Controller
             ->get()
             ->keyBy('barcode');
 
-        $applied = 0;
-        $skipped = [];
+        // Дубль шифра ловится в пределах одного чанка (типичный файл целиком укладывается в один чанк).
         $seen = [];
+        $progress = $importer->processChunk($bulkImport, function (array $row, int $line, ImportResult $result) use ($olympiad, $works, &$seen) {
+            $this->applyPrimaryScoreRow($row, $line, $olympiad, $works, $seen, $result);
+        });
 
-        foreach ($rows as $row) {
-            $cipher = trim((string) ($row[0] ?? ''));
-            // Балл — последняя колонка (в шаблоне «Балл», в простом файле «шифр;балл» — вторая).
-            $rawScore = trim((string) ($row[count($row) - 1] ?? ''));
-            if ($cipher === '') {
-                continue;
-            }
-            if (isset($seen[$cipher])) {
-                $skipped[] = "{$cipher}: дубль шифра в файле";
-                continue;
-            }
-            $seen[$cipher] = true;
+        return response()->json($progress);
+    }
 
-            $work = $works->get($cipher);
-            if (! $work) {
-                $skipped[] = "{$cipher}: шифр не найден среди работ вашего АТЕ";
-                continue;
-            }
-            $norm = str_replace(',', '.', $rawScore);
-            if ($rawScore === '' || ! is_numeric($norm) || (float) $norm < 0) {
-                $skipped[] = "{$cipher}: некорректный балл «{$rawScore}»";
-                continue;
-            }
-            $score = round((float) $norm, 2);
-            $max = $olympiad->maxScoreFor((int) $work->participation_grade);
-            if ($max !== null && $score > $max) {
-                $skipped[] = "{$cipher}: балл {$rawScore} превышает максимальный ({$max})";
-                continue;
-            }
+    /** Выгрузка строк с ошибками фонового импорта баллов по шифру. */
+    public function importPrimaryErrors(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): StreamedResponse
+    {
+        $this->authorizeImport($request, $bulkImport);
 
-            $work->primary_score = $score;
-            $work->question_scores = null;
-            $work->save();
-            $applied++;
+        return $importer->errorsCsv($bulkImport);
+    }
+
+    private function authorizeImport(Request $request, BulkImport $bulkImport): void
+    {
+        abort_unless($bulkImport->type === 'commission_primary_scores' && $bulkImport->user_id === $request->user()->id, 403);
+    }
+
+    /** Обработка одной строки импорта балла по шифру (шифр;…;балл — балл в последней колонке). */
+    private function applyPrimaryScoreRow(array $row, int $line, Olympiad $olympiad, $works, array &$seen, ImportResult $result): void
+    {
+        $cipher = trim((string) ($row[0] ?? ''));
+        // Балл — последняя колонка (в шаблоне «Балл», в простом файле «шифр;балл» — вторая).
+        $rawScore = trim((string) ($row[count($row) - 1] ?? ''));
+        if ($cipher === '') {
+            return;
+        }
+        if (isset($seen[$cipher])) {
+            $result->fail($line, 'дубль шифра в файле', $row);
+
+            return;
+        }
+        $seen[$cipher] = true;
+
+        $work = $works->get($cipher);
+        if (! $work) {
+            $result->fail($line, 'шифр не найден среди работ вашего АТЕ', $row);
+
+            return;
+        }
+        $norm = str_replace(',', '.', $rawScore);
+        if ($rawScore === '' || ! is_numeric($norm) || (float) $norm < 0) {
+            $result->fail($line, "некорректный балл «{$rawScore}»", $row);
+
+            return;
+        }
+        $score = round((float) $norm, 2);
+        $max = $olympiad->maxScoreFor((int) $work->participation_grade);
+        if ($max !== null && $score > $max) {
+            $result->fail($line, "балл {$rawScore} превышает максимальный ({$max})", $row);
+
+            return;
         }
 
-        $message = "Импортировано баллов: {$applied}.";
-        if ($skipped !== []) {
-            $message .= ' Пропущено: '.count($skipped).'.';
-
-            return back()->with('success', $message)->with('import_skipped', $skipped);
-        }
-
-        return back()->with('success', $message);
+        $work->primary_score = $score;
+        $work->question_scores = null;
+        $work->save();
+        $result->updated++;
     }
 
     /** Читает CSV «шифр;балл»: снимает BOM, автоопределяет разделитель, отбрасывает строку-заголовок. */
@@ -274,7 +311,7 @@ class ResultController extends Controller
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Баллы');
-        $header = ['Шифр', 'Класс участия', 'Макс. балл', 'Балл'];
+        $header = self::SCORE_TEMPLATE_HEADER;
         $headerRow = OlympiadImportHeader::write($sheet, $olympiad);
         foreach ($header as $i => $title) {
             $sheet->setCellValue(Coordinate::stringFromColumnIndex($i + 1).$headerRow, $title);

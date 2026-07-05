@@ -42,8 +42,9 @@ class ScheduleTest extends TestCase
             ->assertInertia(fn (AssertableInertia $p) => $p
                 ->component('Schedule/Public')
                 ->where('olympiads.0.subject', 'Физика')
-                ->where('olympiads.0.publication.date', fn ($d) => $d !== null)
-                // Краткое: без сроков первичного ввода.
+                ->where('olympiads.0.start', fn ($d) => $d !== null)
+                // Краткое: без сроков публикации/первичного ввода.
+                ->missing('olympiads.0.publication')
                 ->missing('olympiads.0.primary_close'));
     }
 

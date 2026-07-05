@@ -33,7 +33,16 @@ class OlympiadController extends Controller
 
     public function index(Request $request): Response
     {
-        $yearId = $request->query('year');
+        // Без явного выбора года (первый заход) — открываем текущий учебный год.
+        // 'all' — пользователь явно выбрал «Все учебные годы».
+        $yearParam = $request->query('year');
+        if ($yearParam === 'all') {
+            $yearId = null;
+        } elseif ($yearParam !== null) {
+            $yearId = $yearParam;
+        } else {
+            $yearId = AcademicYear::where('status', 'current')->value('id');
+        }
         $q = trim((string) $request->query('q', ''));
         $level = in_array($request->query('level'), ['regional', 'republican'], true) ? $request->query('level') : null;
 
@@ -66,7 +75,7 @@ class OlympiadController extends Controller
             ->when($hideSchool, fn ($qq) => $qq->where('stage', '!=', 'school'))
             ->when($hideMunicipal, fn ($qq) => $qq->where('stage', '!=', 'municipal'))
             ->when($level, fn ($qq) => $qq->where('level', $level))
-            ->orderByDesc('id')
+            ->orderBy('date_held')
             ->paginate(20)
             ->withQueryString()
             ->through(fn (Olympiad $o) => [
@@ -122,7 +131,7 @@ class OlympiadController extends Controller
         return Inertia::render('Admin/Olympiads/Index', [
             'olympiads' => $olympiads,
             'school_for_municipal' => $schoolForMunicipal,
-            'filters' => ['year' => $yearId, 'q' => $q, 'level' => $level, 'hide_school' => $hideSchool, 'hide_municipal' => $hideMunicipal],
+            'filters' => ['year' => $yearId ?? 'all', 'q' => $q, 'level' => $level, 'hide_school' => $hideSchool, 'hide_municipal' => $hideMunicipal],
             'years' => AcademicYear::orderByDesc('name')->get(['id', 'name']),
             'subjects' => Subject::where('is_active', true)->ordered()->get(['id', 'name']),
             'stages' => self::STAGES,

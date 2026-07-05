@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\School;
 
 use App\Http\Controllers\Controller;
+use App\Models\BulkImport;
 use App\Models\Student;
+use App\Support\ChunkedImportService;
 use App\Support\Concerns\ParsesImportValues;
+use App\Support\ImportResult;
 use App\Support\SpreadsheetReader;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -163,63 +167,86 @@ class StudentController extends Controller
         ]);
     }
 
-    /** Пакетный импорт учащихся в свою школу. */
-    public function import(Request $request): RedirectResponse
+    /** Запуск пакетного импорта учащихся (по частям, с прогресс-баром — см. ChunkedImportService). */
+    public function import(Request $request, ChunkedImportService $importer): JsonResponse
     {
         $schoolId = $request->user()->school_id;
-        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:5120']]);
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:20480']]);
 
         $file = $request->file('file');
         $rows = array_slice(SpreadsheetReader::rows($file->getRealPath(), $file->getClientOriginalExtension()), 1);
-        $created = $updated = 0;
-        $errors = [];
 
-        foreach ($rows as $i => $r) {
-            $line = $i + 2;
-            $fio = trim((string) ($r[0] ?? ''));
-            $birth = $this->parseDate((string) ($r[1] ?? ''));
-            $snils = trim((string) ($r[2] ?? '')) ?: null;
-            $gender = $this->parseGender((string) ($r[3] ?? ''));
-            $ovzRaw = trim((string) ($r[4] ?? ''));
-            $grade = (int) trim((string) ($r[5] ?? 0));
-            $letter = $this->normalizeLetter((string) ($r[6] ?? ''));
+        $import = $importer->start(
+            $request->user()->id, 'school_students', 'Учащиеся',
+            ['school_id' => $schoolId], self::TEMPLATE_HEADER, $rows,
+        );
 
-            if ($fio === '' && $birth === null) {
-                continue;
-            }
-            if ($fio === '' || $birth === null || $grade < 1 || $grade > 11) {
-                $errors[] = "строка $line: пустое ФИО, некорректная дата или класс";
-                continue;
-            }
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
 
-            $attributes = [
-                'school_id' => $schoolId, 'fio' => $fio, 'gender' => $gender,
-                'real_grade' => $grade, 'class_letter' => $letter ?: null,
-                'ovz' => $ovzRaw === '' ? null : ($ovzRaw === '1'),
-            ];
+    /** Обработка очередной части строк импорта учащихся. */
+    public function importChunk(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): JsonResponse
+    {
+        $this->authorizeImport($request, $bulkImport, 'school_students');
+        $schoolId = (int) $bulkImport->context['school_id'];
 
-            // Дедуп: по СНИЛС в рамках ОО, иначе по ФИО+дате.
-            $key = $snils
-                ? ['school_id' => $schoolId, 'snils' => $snils]
-                : ['school_id' => $schoolId, 'fio' => $fio, 'birth_date' => $birth];
+        $progress = $importer->processChunk($bulkImport, fn (array $r, int $line, ImportResult $result) => $this->applyStudentRow($r, $line, $schoolId, $result));
 
-            $existing = Student::where($key)->first();
-            if ($existing) {
-                $existing->update($attributes + ['birth_date' => $birth, 'snils' => $snils]);
-                $updated++;
-            } else {
-                Student::create($attributes + ['birth_date' => $birth, 'snils' => $snils, 'status' => 'active']);
-                $created++;
-            }
+        return response()->json($progress);
+    }
+
+    /** Выгрузка строк с ошибками фонового импорта учащихся. */
+    public function importErrors(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): StreamedResponse
+    {
+        $this->authorizeImport($request, $bulkImport, 'school_students');
+
+        return $importer->errorsCsv($bulkImport);
+    }
+
+    private function authorizeImport(Request $request, BulkImport $bulkImport, string $type): void
+    {
+        abort_unless($bulkImport->type === $type && $bulkImport->user_id === $request->user()->id, 403);
+    }
+
+    /** Обработка одной строки импорта учащегося (дедуп по СНИЛС в рамках ОО, иначе ФИО+дата). */
+    private function applyStudentRow(array $r, int $line, int $schoolId, ImportResult $result): void
+    {
+        $fio = trim((string) ($r[0] ?? ''));
+        $birth = $this->parseDate((string) ($r[1] ?? ''));
+        $snils = trim((string) ($r[2] ?? '')) ?: null;
+        $gender = $this->parseGender((string) ($r[3] ?? ''));
+        $ovzRaw = trim((string) ($r[4] ?? ''));
+        $grade = (int) trim((string) ($r[5] ?? 0));
+        $letter = $this->normalizeLetter((string) ($r[6] ?? ''));
+
+        if ($fio === '' && $birth === null) {
+            return;
+        }
+        if ($fio === '' || $birth === null || $grade < 1 || $grade > 11) {
+            $result->fail($line, 'пустое ФИО, некорректная дата или класс', $r);
+
+            return;
         }
 
-        $summary = "Импорт: добавлено $created, обновлено $updated.";
-        if ($errors) {
-            return back()->with('success', $summary)
-                ->withErrors(['file' => 'Пропущены строки — '.implode('; ', array_slice($errors, 0, 10))]);
-        }
+        $attributes = [
+            'school_id' => $schoolId, 'fio' => $fio, 'gender' => $gender,
+            'real_grade' => $grade, 'class_letter' => $letter ?: null,
+            'ovz' => $ovzRaw === '' ? null : ($ovzRaw === '1'),
+        ];
 
-        return back()->with('success', $summary);
+        // Дедуп: по СНИЛС в рамках ОО, иначе по ФИО+дате.
+        $key = $snils
+            ? ['school_id' => $schoolId, 'snils' => $snils]
+            : ['school_id' => $schoolId, 'fio' => $fio, 'birth_date' => $birth];
+
+        $existing = Student::where($key)->first();
+        if ($existing) {
+            $existing->update($attributes + ['birth_date' => $birth, 'snils' => $snils]);
+            $result->updated++;
+        } else {
+            Student::create($attributes + ['birth_date' => $birth, 'snils' => $snils, 'status' => 'active']);
+            $result->created++;
+        }
     }
 
     private function validateData(Request $request, int $schoolId, ?int $ignoreId): array

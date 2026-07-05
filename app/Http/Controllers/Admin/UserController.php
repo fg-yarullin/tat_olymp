@@ -25,6 +25,7 @@ class UserController extends Controller
     {
         $q = $request->query('q');
         $ateId = $request->query('ate_id');
+        $role = $request->query('role');
 
         $users = User::query()
             // Председателей комиссий и координаторов РОЦ администратор не ведёт — ими управляют
@@ -38,6 +39,7 @@ class UserController extends Controller
                 ->where('ate_id', $ateId)
                 ->orWhereHas('coordinatorAtes', fn ($a) => $a->where('ates.id', $ateId))
                 ->orWhereHas('school', fn ($s) => $s->where('ate_id', $ateId))))
+            ->when($role, fn ($query) => $query->where('role', $role))
             ->orderBy('name')
             ->paginate(15)
             ->withQueryString()
@@ -57,7 +59,7 @@ class UserController extends Controller
 
         return Inertia::render('Admin/Users/Index', [
             'users' => $users,
-            'filters' => ['q' => $q, 'ate_id' => $ateId],
+            'filters' => ['q' => $q, 'ate_id' => $ateId, 'role' => $role],
             'roles' => collect(UserRole::cases())
                 ->reject(fn ($r) => in_array($r, [UserRole::CommissionChair, UserRole::RocSubjectCoordinator, UserRole::KazanSubjectCoordinator], true))
                 ->map(fn ($r) => ['value' => $r->value, 'label' => $r->label()])

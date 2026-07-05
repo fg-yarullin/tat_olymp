@@ -159,6 +159,19 @@ class SchoolContourTest extends TestCase
         $this->assertStringContainsString('42', $text);
     }
 
+    /** Запускает импорт результатов ШЭ (по частям) и доводит его до завершения; возвращает итог. */
+    private function runResultsImport($operator, $olympiad, $csv): array
+    {
+        $this->actingAs($operator);
+        $start = $this->post(route('school.olympiad.import', $olympiad), ['file' => $csv])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('school.olympiad.import.chunk', $start['id']))->json();
+        }
+
+        return $prog;
+    }
+
     public function test_import_creates_human_olympiad_only_for_scored_rows(): void
     {
         $school = $this->makeSchool();
@@ -172,9 +185,9 @@ class SchoolContourTest extends TestCase
             [$blank->id, 'Без балла', '2012-03-01', 7, 7, ''], // балл пуст -> пропуск
         ]);
 
-        $this->actingAs($operator)
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $csv])
-            ->assertSessionHasNoErrors();
+        $prog = $this->runResultsImport($operator, $olympiad, $csv);
+        $this->assertSame(1, $prog['created']);
+        $this->assertSame(1, $prog['skipped']);
 
         $this->assertDatabaseHas('human_olympiad', [
             'student_id' => $scored->id, 'olympiad_id' => $olympiad->id, 'score' => 95,
@@ -194,10 +207,8 @@ class SchoolContourTest extends TestCase
 
         $csv = $this->uploadCsv([[$foreign->id, 'Чужой Ученик', '2012-03-01', 7, 7, '90']]);
 
-        // Ошибки строк теперь предупреждение (flash.warning), а не валидационная ошибка.
-        $this->actingAs($operatorA)
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $csv])
-            ->assertSessionHas('warning');
+        $prog = $this->runResultsImport($operatorA, $olympiad, $csv);
+        $this->assertSame(1, $prog['failed']);
 
         $this->assertDatabaseMissing('human_olympiad', ['student_id' => $foreign->id]);
     }
@@ -212,9 +223,8 @@ class SchoolContourTest extends TestCase
 
         $csv = $this->uploadCsv([[$student->id, 'Высокий Балл', '2012-03-01', 7, 7, '95']]);
 
-        $this->actingAs($operator)
-            ->post(route('school.olympiad.import', $olympiad), ['file' => $csv])
-            ->assertSessionHas('warning');
+        $prog = $this->runResultsImport($operator, $olympiad, $csv);
+        $this->assertSame(1, $prog['failed']);
 
         $this->assertDatabaseMissing('human_olympiad', ['student_id' => $student->id]);
     }
@@ -228,9 +238,11 @@ class SchoolContourTest extends TestCase
 
         $csv = $this->uploadCsv([[$student->id, 'Поздний Балл', '2012-03-01', 7, 7, '90']]);
 
+        // Закрытый ввод — импорт даже не стартует (422 с ошибкой по файлу).
         $this->actingAs($operator)
             ->post(route('school.olympiad.import', $olympiad), ['file' => $csv])
-            ->assertSessionHasErrors('file');
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
 
         $this->assertDatabaseMissing('human_olympiad', ['student_id' => $student->id]);
     }

@@ -2,7 +2,7 @@ import CipherCell from '@/Components/CipherCell';
 import Modal from '@/Components/Modal';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
 const BASIS_LABELS = {
@@ -171,6 +171,69 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
         if (confirm(`Убрать «${p.fio}» из состава МЭ?`)) {
             router.delete(route('municipal.results.destroy', p.id), { preserveScroll: true });
         }
+    };
+
+    // Массовое удаление: чекбоксы по строкам, «выбрать все по фильтру» и полная очистка состава.
+    const [selected, setSelected] = useState(() => new Set());
+    const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+    const [showWipeModal, setShowWipeModal] = useState(false);
+    const [wipeConfirmText, setWipeConfirmText] = useState('');
+    const clearSelection = () => { setSelected(new Set()); setSelectAllFiltered(false); };
+    // Сброс выбора при смене страницы/фильтров — иначе можно случайно удалить не то, что видно на экране.
+    useEffect(() => {
+        clearSelection();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [participants.current_page, filters.q, filters.grade, filters.pgrade, filters.school]);
+
+    const pageIds = participants.data.map((p) => p.id);
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+    const selectedCount = selectAllFiltered ? participants.total : selected.size;
+    const toggleRow = (id) => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+    const toggleAllOnPage = () => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            if (allOnPageSelected) {
+                const next = new Set(prev);
+                pageIds.forEach((id) => next.delete(id));
+                return next;
+            }
+            return new Set([...prev, ...pageIds]);
+        });
+    };
+    // Текущий вид (фильтры/страница) — чтобы сервер после удаления знал, куда вернуть
+    // координатора (и подвинул страницу назад, если текущая опустела).
+    const currentView = () => ({
+        q: filters.q || undefined,
+        grade: filters.grade ?? undefined,
+        pgrade: filters.pgrade ?? undefined,
+        school: filters.school ?? undefined,
+        page: participants.current_page,
+    });
+    const bulkDeleteSelected = () => {
+        if (selectedCount === 0) return;
+        if (!confirm(`Убрать выбранных участников (${selectedCount}) из состава МЭ? Действие необратимо.`)) return;
+        const payload = {
+            ...currentView(),
+            ...(selectAllFiltered ? { mode: 'filtered' } : { mode: 'selected', ids: [...selected] }),
+        };
+        router.post(route('municipal.results.bulk-destroy', olympiad.id), payload, {
+            preserveScroll: true,
+            onSuccess: clearSelection,
+        });
+    };
+    const wipeAll = () => {
+        if (wipeConfirmText.trim() !== String(participants.total)) return;
+        router.post(route('municipal.results.bulk-destroy', olympiad.id), { ...currentView(), mode: 'all' }, {
+            preserveScroll: true,
+            onSuccess: () => { setShowWipeModal(false); setWipeConfirmText(''); clearSelection(); },
+        });
     };
 
     // Присвоение шифра участнику (для обезличенной проверки председателем) — инлайн-ячейкой.
@@ -374,8 +437,42 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                                             className="rounded px-2 py-2 text-sm text-gray-500 hover:underline">Сброс</button>
                                     )}
                                 </form>
+                                {open && participants.total > 0 && (
+                                    <button onClick={() => setShowWipeModal(true)}
+                                        className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+                                        Удалить весь состав
+                                    </button>
+                                )}
                             </div>
                         </div>
+                        {open && selectedCount > 0 && (
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-indigo-50 px-6 py-3 text-sm">
+                                <span className="text-indigo-800">
+                                    {selectAllFiltered
+                                        ? `Выбраны все участники по текущему фильтру: ${selectedCount}.`
+                                        : (
+                                            <>
+                                                Выбрано: {selectedCount}.{' '}
+                                                {allOnPageSelected && participants.total > pageIds.length && (
+                                                    <button type="button" onClick={() => setSelectAllFiltered(true)}
+                                                        className="font-medium text-indigo-700 hover:underline">
+                                                        Выбрать все {participants.total} по текущему фильтру
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    <button type="button" onClick={clearSelection} className="text-gray-500 hover:underline">
+                                        Отменить выбор
+                                    </button>
+                                    <button type="button" onClick={bulkDeleteSelected}
+                                        className="rounded bg-red-600 px-3 py-2 font-medium text-white hover:bg-red-700">
+                                        Убрать выбранных ({selectedCount})
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         {participants.data.length === 0 ? (
                             <p className="px-6 py-8 text-center text-sm text-gray-400">
                                 {filters.q || filters.grade || filters.pgrade || filters.school ? 'Ничего не найдено по фильтрам.' : 'Состав пока не сформирован.'}
@@ -384,6 +481,12 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                             <table className="min-w-full text-sm">
                                 <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                                     <tr>
+                                        {open && (
+                                            <th className="px-3 py-3">
+                                                <input type="checkbox" checked={selectAllFiltered || allOnPageSelected}
+                                                    onChange={toggleAllOnPage} />
+                                            </th>
+                                        )}
                                         <th className="px-3 py-3">Ученик</th>
                                         <th className="px-3 py-3">Школа</th>
                                         <th className="px-3 py-3">Кл.</th>
@@ -396,6 +499,12 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                                 <tbody className="divide-y divide-gray-100">
                                     {participants.data.map((p) => (
                                         <tr key={p.id} className="hover:bg-gray-50">
+                                            {open && (
+                                                <td className="px-3 py-2">
+                                                    <input type="checkbox" checked={selectAllFiltered || selected.has(p.id)}
+                                                        onChange={() => toggleRow(p.id)} />
+                                                </td>
+                                            )}
                                             <td className="px-3 py-2 font-medium text-gray-800">
                                                 {p.fio}
                                                 {p.from_other_region && (
@@ -437,6 +546,29 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                     </div>
                 </div>
             </div>
+
+            <Modal show={showWipeModal} onClose={() => { setShowWipeModal(false); setWipeConfirmText(''); }} maxWidth="md">
+                <div className="space-y-4 p-6">
+                    <h3 className="font-semibold text-red-700">Удалить весь состав МЭ по этой олимпиаде</h3>
+                    <p className="text-sm text-gray-600">
+                        Будут убраны ВСЕ участники состава МЭ вашего АТЕ по этой олимпиаде — {participants.total}.
+                        Действие необратимо и не зависит от текущих фильтров. Чтобы подтвердить, введите число{' '}
+                        <b>{participants.total}</b>:
+                    </p>
+                    <input type="text" value={wipeConfirmText} onChange={(e) => setWipeConfirmText(e.target.value)}
+                        placeholder={String(participants.total)}
+                        className="w-full rounded border-gray-300 text-sm" />
+                    <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => { setShowWipeModal(false); setWipeConfirmText(''); }}
+                            className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                        <button type="button" disabled={wipeConfirmText.trim() !== String(participants.total)}
+                            onClick={wipeAll}
+                            className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                            Удалить всё ({participants.total})
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             <Modal show={importOpen} onClose={() => setImportOpen(false)} maxWidth="lg">
                 <form onSubmit={submitImport} className="space-y-4 p-6">

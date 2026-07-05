@@ -1,8 +1,10 @@
+import ImportProgress from '@/Components/ImportProgress';
 import Modal from '@/Components/Modal';
 import ScoreCell from '@/Components/ScoreCell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useChunkedImport } from '@/Hooks/useChunkedImport';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
 const fmt = (n) => (n == null || n === '' ? '—' : String(n).replace('.', ','));
@@ -33,17 +35,30 @@ export default function CommissionShow({ olympiad, works, filters = {}, grade_op
 
     const { flash = {} } = usePage().props;
 
-    // Массовый ввод первичных баллов из CSV «шифр;балл».
+    // Массовый ввод первичных баллов по шифру (по частям, с прогресс-баром).
     const [importOpen, setImportOpen] = useState(false);
-    const importForm = useForm({ file: null });
+    const [importFile, setImportFile] = useState(null);
+    const chunkedImport = useChunkedImport({
+        startUrl: route('commission.results.import', olympiad.id),
+        chunkUrl: (id) => route('commission.results.import.chunk', id),
+        errorsUrl: (id) => route('commission.results.import.errors', id),
+    });
     const submitImport = (e) => {
         e.preventDefault();
-        importForm.post(route('commission.results.import', olympiad.id), {
-            preserveScroll: true,
-            forceFormData: true,
-            onSuccess: () => { setImportOpen(false); importForm.reset('file'); },
-        });
+        chunkedImport.run(importFile);
     };
+    const closeImport = () => {
+        setImportOpen(false);
+        chunkedImport.reset();
+        setImportFile(null);
+    };
+    // После завершения импорта обновляем список работ — прогресс-бар остаётся виден.
+    useEffect(() => {
+        if (chunkedImport.progress?.done) {
+            router.reload({ only: ['works'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chunkedImport.progress?.done]);
 
     const [row, setRow] = useState(null);
     const form = useForm({ primary_score: '', scores: {} });
@@ -71,17 +86,7 @@ export default function CommissionShow({ olympiad, works, filters = {}, grade_op
                     </Link>
 
                     {flash.success && (
-                        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-800 shadow-sm">
-                            {flash.success}
-                            {flash.import_skipped?.length > 0 && (
-                                <details className="mt-2">
-                                    <summary className="cursor-pointer text-green-700">Показать пропущенные строки ({flash.import_skipped.length})</summary>
-                                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-red-700">
-                                        {flash.import_skipped.map((s, i) => <li key={i}>{s}</li>)}
-                                    </ul>
-                                </details>
-                            )}
-                        </div>
+                        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-800 shadow-sm">{flash.success}</div>
                     )}
 
                     <div className="rounded-lg bg-white p-4 text-sm text-gray-600 shadow">
@@ -109,7 +114,7 @@ export default function CommissionShow({ olympiad, works, filters = {}, grade_op
                                             className="rounded border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
                                             ↓ Шаблон баллов (XLSX)
                                         </a>
-                                        <button onClick={() => { importForm.clearErrors(); setImportOpen(true); }}
+                                        <button onClick={() => { chunkedImport.reset(); setImportFile(null); setImportOpen(true); }}
                                             className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
                                             Массовый ввод
                                         </button>
@@ -191,7 +196,7 @@ export default function CommissionShow({ olympiad, works, filters = {}, grade_op
                 </div>
             </div>
 
-            <Modal show={importOpen} onClose={() => setImportOpen(false)} maxWidth="lg">
+            <Modal show={importOpen} onClose={closeImport} maxWidth="lg">
                 <form onSubmit={submitImport} className="space-y-4 p-6">
                     <h3 className="font-semibold text-gray-800">Массовый ввод первичных баллов</h3>
                     <p className="text-xs text-gray-500">
@@ -200,17 +205,22 @@ export default function CommissionShow({ olympiad, works, filters = {}, grade_op
                         шифры, дубли и баллы выше максимума будут пропущены — список покажем после загрузки.
                         {questionCount > 0 && ' Покомандная разбивка при массовой загрузке очищается (балл из файла — итоговый).'}
                     </p>
-                    <div>
-                        <input type="file" accept=".xlsx,.ods,.csv,.txt"
-                            onChange={(e) => importForm.setData('file', e.target.files[0] ?? null)}
-                            className="block w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm" />
-                        {importForm.errors.file && <p className="mt-1 text-xs text-red-600">{importForm.errors.file}</p>}
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => setImportOpen(false)} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
-                        <button type="submit" disabled={importForm.processing || !importForm.data.file}
-                            className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Загрузить</button>
-                    </div>
+                    {!chunkedImport.progress && (
+                        <>
+                            <div>
+                                <input type="file" accept=".xlsx,.ods,.csv,.txt"
+                                    onChange={(e) => setImportFile(e.target.files[0] ?? null)}
+                                    className="block w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm" />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button type="button" onClick={closeImport} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                                <button type="submit" disabled={chunkedImport.running || !importFile}
+                                    className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Загрузить</button>
+                            </div>
+                        </>
+                    )}
+                    <ImportProgress progress={chunkedImport.progress} error={chunkedImport.error} errorsHref={chunkedImport.errorsHref}
+                        onReset={() => { chunkedImport.reset(); setImportFile(null); }} />
                 </form>
             </Modal>
 

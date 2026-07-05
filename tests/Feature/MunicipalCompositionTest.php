@@ -290,4 +290,112 @@ class MunicipalCompositionTest extends TestCase
             ->post(route('municipal.results.store', $municipal), ['student_id' => $foreign->id, 'participation_grade' => 9])
             ->assertSessionHasErrors('student_id');
     }
+
+    public function test_bulk_destroy_selected_ids(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $municipal = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id, 'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned']);
+        $s1 = $this->student($school, 9);
+        $s2 = $this->student($school, 9);
+        $s3 = $this->student($school, 9);
+        $h1 = HumanOlympiad::create(['student_id' => $s1->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+        $h2 = HumanOlympiad::create(['student_id' => $s2->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+        HumanOlympiad::create(['student_id' => $s3->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.bulk-destroy', $municipal), ['mode' => 'selected', 'ids' => [$h1->id, $h2->id]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(1, HumanOlympiad::where('olympiad_id', $municipal->id)->count());
+        $this->assertDatabaseMissing('human_olympiad', ['id' => $h1->id]);
+    }
+
+    public function test_bulk_destroy_filtered_by_school(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $schoolA = $this->school($ate);
+        $schoolB = $this->school($ate);
+        $municipal = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id, 'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned']);
+        $a = $this->student($schoolA, 9);
+        $b = $this->student($schoolB, 9);
+        HumanOlympiad::create(['student_id' => $a->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+        HumanOlympiad::create(['student_id' => $b->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.bulk-destroy', $municipal), ['mode' => 'filtered', 'school' => $schoolA->id])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseMissing('human_olympiad', ['student_id' => $a->id]);
+        $this->assertDatabaseHas('human_olympiad', ['student_id' => $b->id]);
+    }
+
+    public function test_bulk_destroy_all_scoped_to_own_ate(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ateA = Ate::create(['ate_code' => '01', 'name' => 'АТЕ A', 'type' => 'isolated']);
+        $ateB = Ate::create(['ate_code' => '02', 'name' => 'АТЕ B', 'type' => 'isolated']);
+        $schoolA = $this->school($ateA);
+        $schoolB = $this->school($ateB);
+        $municipal = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id, 'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned']);
+        $a = $this->student($schoolA, 9);
+        $b = $this->student($schoolB, 9);
+        HumanOlympiad::create(['student_id' => $a->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+        HumanOlympiad::create(['student_id' => $b->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ateA->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.bulk-destroy', $municipal), ['mode' => 'all'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseMissing('human_olympiad', ['student_id' => $a->id]);
+        $this->assertDatabaseHas('human_olympiad', ['student_id' => $b->id]);
+    }
+
+    public function test_bulk_destroy_redirects_to_previous_page_when_current_page_empties(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $municipal = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id, 'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned']);
+        $ids = [];
+        for ($i = 0; $i < 26; $i++) {
+            $student = $this->student($school, 9);
+            $ids[] = HumanOlympiad::create(['student_id' => $student->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9])->id;
+        }
+        $lastId = end($ids);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.bulk-destroy', $municipal), ['mode' => 'selected', 'ids' => [$lastId], 'page' => 2])
+            ->assertRedirect(route('municipal.results.show', $municipal));
+
+        $this->assertSame(25, HumanOlympiad::where('olympiad_id', $municipal->id)->count());
+    }
+
+    public function test_bulk_destroy_blocked_when_composition_closed(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $municipal = Olympiad::create(['academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id, 'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'published_at' => now()]);
+        $student = $this->student($school, 9);
+        $h = HumanOlympiad::create(['student_id' => $student->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.bulk-destroy', $municipal), ['mode' => 'selected', 'ids' => [$h->id]])
+            ->assertSessionHasErrors('participation');
+
+        $this->assertDatabaseHas('human_olympiad', ['id' => $h->id]);
+    }
 }

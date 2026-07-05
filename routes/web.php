@@ -90,6 +90,8 @@ Route::middleware(['auth', 'user.active', 'role:school_operator'])
         Route::post('/students', [SchoolStudentController::class, 'store'])->name('students.store');
         Route::get('/students/template', [SchoolStudentController::class, 'downloadTemplate'])->name('students.template');
         Route::post('/students/import', [SchoolStudentController::class, 'import'])->name('students.import');
+        Route::post('/students/import/{bulkImport}/chunk', [SchoolStudentController::class, 'importChunk'])->name('students.import.chunk');
+        Route::get('/students/import/{bulkImport}/errors.csv', [SchoolStudentController::class, 'importErrors'])->name('students.import.errors');
         Route::put('/students/{student}', [SchoolStudentController::class, 'update'])->name('students.update');
         Route::post('/students/{student}/depart', [SchoolStudentController::class, 'markDeparted'])->name('students.depart');
         Route::post('/students/{student}/restore', [SchoolStudentController::class, 'restore'])->name('students.restore');
@@ -101,6 +103,7 @@ Route::middleware(['auth', 'user.active', 'role:school_operator'])
         Route::post('/results/participation/{participation}/score', [SchoolResultController::class, 'updateScore'])->name('results.score');
         Route::post('/results/{olympiad}/auto-status', [SchoolResultController::class, 'autoStatus'])->name('results.auto-status');
         Route::delete('/results/participation/{participation}', [SchoolResultController::class, 'destroy'])->name('results.destroy');
+        Route::post('/results/{olympiad}/bulk-destroy', [SchoolResultController::class, 'bulkDestroy'])->name('results.bulk-destroy');
         // Протокол школьного этапа (XLSX по образцу)
         Route::get('/results/{olympiad}/protocol', [SchoolProtocolController::class, 'schoolStage'])->name('results.protocol');
         Route::post('/olympiads/{olympiad}/download-zip', [SchoolOlympiadController::class, 'downloadZipArchive'])
@@ -110,6 +113,10 @@ Route::middleware(['auth', 'user.active', 'role:school_operator'])
             ->name('olympiad.template');
         Route::post('/olympiads/{olympiad}/import', [SchoolOlympiadController::class, 'importResults'])
             ->name('olympiad.import');
+        Route::post('/olympiads/import/{bulkImport}/chunk', [SchoolOlympiadController::class, 'importResultsChunk'])
+            ->name('olympiad.import.chunk');
+        Route::get('/olympiads/import/{bulkImport}/errors.csv', [SchoolOlympiadController::class, 'importResultsErrors'])
+            ->name('olympiad.import.errors');
 
         // Приглашённые на муниципальный этап (видимость + выгрузка XLSX)
         Route::get('/invitations', [SchoolInvitationController::class, 'index'])->name('invitations.index');
@@ -252,6 +259,10 @@ Route::middleware(['auth', 'user.active', 'role:municipal_coordinator,kazan_subj
         Route::get('/results/{olympiad}/cipher-template.xlsx', [MunicipalResultController::class, 'cipherTemplateXlsx'])->name('results.cipher-template');
         Route::post('/results/{olympiad}/import-ciphers', [MunicipalResultController::class, 'importCiphers'])->name('results.import-ciphers');
         Route::post('/results/{olympiad}/scans', [MunicipalResultController::class, 'uploadScans'])->name('results.scans');
+        Route::get('/results/{olympiad}/score-template.xlsx', [MunicipalResultController::class, 'scoreTemplateXlsx'])->name('results.score-template');
+        Route::post('/results/{olympiad}/import-scores', [MunicipalResultController::class, 'importScores'])->name('results.import-scores');
+        Route::post('/results/import-scores/{bulkImport}/chunk', [MunicipalResultController::class, 'importScoresChunk'])->name('results.import-scores.chunk');
+        Route::get('/results/import-scores/{bulkImport}/errors.csv', [MunicipalResultController::class, 'importScoresErrors'])->name('results.import-scores.errors');
         Route::post('/results/{olympiad}/compose', [MunicipalResultController::class, 'composeFromStages'])->name('results.compose');
         Route::post('/results/{olympiad}/compose-top-n', [MunicipalResultController::class, 'composeTopN'])->name('results.compose-top-n');
         Route::post('/results/{olympiad}/compose-top-n-school', [MunicipalResultController::class, 'composeTopNPerSchool'])->name('results.compose-top-n-school');
@@ -261,6 +272,7 @@ Route::middleware(['auth', 'user.active', 'role:municipal_coordinator,kazan_subj
         Route::post('/results/participation/{participation}/primary', [MunicipalResultController::class, 'storePrimary'])->name('results.primary');
         Route::post('/results/participation/{participation}/appeal', [MunicipalResultController::class, 'storeAppeal'])->name('results.appeal');
         Route::delete('/results/participation/{participation}', [MunicipalResultController::class, 'destroy'])->name('results.destroy');
+        Route::post('/results/{olympiad}/bulk-destroy', [MunicipalResultController::class, 'bulkDestroy'])->name('results.bulk-destroy');
 
         // Председатели предметных комиссий своего АТЕ (создание с привязкой к олимпиаде)
         Route::get('/chairs', [MunicipalChairController::class, 'index'])->name('chairs.index');
@@ -290,6 +302,8 @@ Route::middleware(['auth', 'user.active', 'role:commission_chair'])
         Route::post('/results/participation/{participation}/primary', [CommissionResultController::class, 'storePrimary'])->name('results.primary');
         Route::get('/results/{olympiad}/score-template.xlsx', [CommissionResultController::class, 'scoreTemplateXlsx'])->name('results.score-template');
         Route::post('/results/{olympiad}/import', [CommissionResultController::class, 'importPrimary'])->name('results.import');
+        Route::post('/results/import/{bulkImport}/chunk', [CommissionResultController::class, 'importPrimaryChunk'])->name('results.import.chunk');
+        Route::get('/results/import/{bulkImport}/errors.csv', [CommissionResultController::class, 'importPrimaryErrors'])->name('results.import.errors');
     });
 
 /*

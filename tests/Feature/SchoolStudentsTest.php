@@ -123,9 +123,14 @@ class SchoolStudentsTest extends TestCase
         file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
         $file = new \Illuminate\Http\UploadedFile($path, 's.csv', 'text/csv', null, true);
 
-        $this->actingAs($this->operator($school))
-            ->post(route('school.students.import'), ['file' => $file])
-            ->assertSessionHasNoErrors();
+        // Импорт — по частям: старт возвращает JSON, затем чанки до завершения.
+        $this->actingAs($this->operator($school));
+        $start = $this->post(route('school.students.import'), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('school.students.import.chunk', $start['id']))->json();
+        }
+        $this->assertSame(2, $prog['created']);
 
         $this->assertSame(2, Student::where('school_id', $school->id)->count());
         $ivanov = Student::where('fio', 'Иванов Иван')->first();
@@ -133,6 +138,33 @@ class SchoolStudentsTest extends TestCase
         $this->assertSame('7-А', $ivanov->className());
         $this->assertSame('2012-03-15', $ivanov->birth_date->toDateString());
         $this->assertNull(Student::where('fio', 'Петрова Анна')->first()->class_letter);
+    }
+
+    public function test_import_processes_over_multiple_chunks(): void
+    {
+        $school = $this->makeSchool();
+        $lines = ['ФИО;Дата рождения;СНИЛС;Пол;ОВЗ;Класс;Литера'];
+        for ($k = 0; $k < 220; $k++) {
+            $lines[] = "Учащийся {$k};01.09.2012;;;;7;";
+        }
+        $path = tempnam(sys_get_temp_dir(), 'st').'.csv';
+        file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
+        $file = new \Illuminate\Http\UploadedFile($path, 's.csv', 'text/csv', null, true);
+
+        $this->actingAs($this->operator($school));
+        $start = $this->post(route('school.students.import'), ['file' => $file])->json();
+        $this->assertSame(220, $start['total']);
+
+        $chunks = 0;
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('school.students.import.chunk', $start['id']))->json();
+            $chunks++;
+        }
+
+        $this->assertGreaterThanOrEqual(2, $chunks);
+        $this->assertSame(220, $prog['created']);
+        $this->assertSame(220, Student::where('school_id', $school->id)->count());
     }
 
     public function test_cannot_edit_other_schools_student(): void
@@ -231,7 +263,7 @@ class SchoolStudentsTest extends TestCase
         $this->assertStringNotContainsString('Виды практик', $text);
 
         $tech = \App\Models\Olympiad::create([
-            'academic_year_id' => $year->id, 'subject' => 'Технология', 'stage' => 'school',
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'stage' => 'school',
             'grades' => '1,2,3,4,5,6,7,8,9,10,11', 'date_held' => '2025-11-15',
         ]);
         $techText = $this->xlsxText($this->actingAs($operator)

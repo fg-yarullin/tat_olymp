@@ -46,8 +46,8 @@ function SchoolTable({ rows }) {
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                 <tr>
                     <th className="px-4 py-3">Олимпиада</th>
-                    <th className="px-4 py-3">Начало</th>
-                    <th className="px-4 py-3">Закрытие ввода / публикация</th>
+                    <th className="px-4 py-3">Проведение</th>
+                    <th className="px-4 py-3">Закрытие ввода результатов</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -70,9 +70,9 @@ function TwoPhaseTable({ rows }) {
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                 <tr>
                     <th className="px-4 py-3">Олимпиада</th>
-                    <th className="px-4 py-3">Начало</th>
-                    <th className="px-4 py-3">Закрытие первичного ввода</th>
-                    <th className="px-4 py-3">Апелляции / публикация</th>
+                    <th className="px-4 py-3">Проведение</th>
+                    <th className="px-4 py-3">Первичный ввод до</th>
+                    <th className="px-4 py-3">Итоговый ввод до</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

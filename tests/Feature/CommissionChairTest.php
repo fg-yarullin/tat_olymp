@@ -214,9 +214,14 @@ class CommissionChairTest extends TestCase
         $csv = "Шифр;Балл\nSH-1;42\nSH-2;60\nSH-2;30\nSH-X;15\nSH-B;25\n";
         $file = \Illuminate\Http\Testing\File::createWithContent('scores.csv', $csv);
 
-        $this->actingAs($chair)
-            ->post(route('commission.results.import', $olympiad), ['file' => $file])
-            ->assertSessionHas('success');
+        $this->actingAs($chair);
+        $start = $this->post(route('commission.results.import', $olympiad), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('commission.results.import.chunk', $start['id']))->json();
+        }
+        $this->assertSame(1, $prog['updated']);
+        $this->assertSame(4, $prog['failed']); // SH-2(>max), SH-2(дубль), SH-X(не найден), SH-B(чужой АТЕ)
 
         $this->assertEqualsWithDelta(42, (float) $mine->fresh()->primary_score, 0.001);
         $this->assertNull($second->fresh()->primary_score);   // 60>max и дубль → не записан
@@ -245,9 +250,13 @@ class CommissionChairTest extends TestCase
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss))->save($path);
         $file = new \Illuminate\Http\UploadedFile($path, 'bally.xlsx', null, null, true);
 
-        $this->actingAs($chair)
-            ->post(route('commission.results.import', $olympiad), ['file' => $file])
-            ->assertSessionHas('success');
+        $this->actingAs($chair);
+        $start = $this->post(route('commission.results.import', $olympiad), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('commission.results.import.chunk', $start['id']))->json();
+        }
+        $this->assertSame(1, $prog['updated']);
 
         $this->assertEqualsWithDelta(37, (float) $mine->fresh()->primary_score, 0.001);
         @unlink($path);
@@ -266,9 +275,11 @@ class CommissionChairTest extends TestCase
         $csv = "Олимпиада;Физ\nКод олимпиады (не изменять);99999\nШифр;Балл\nSH-1;42\n";
         $file = \Illuminate\Http\Testing\File::createWithContent('scores.csv', $csv);
 
+        // Импорт даже не стартует (422 с ошибкой по файлу) — код олимпиады не совпал.
         $this->actingAs($chair)
             ->post(route('commission.results.import', $olympiad), ['file' => $file])
-            ->assertSessionHasErrors('file');
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
 
         $this->assertNull($mine->fresh()->primary_score); // ничего не записано
     }

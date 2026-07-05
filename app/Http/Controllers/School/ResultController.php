@@ -111,15 +111,7 @@ class ResultController extends Controller
         $gradeOptions = (clone $base)->distinct()->orderBy('students.real_grade')->pluck('students.real_grade');
         $pgradeOptions = (clone $base)->distinct()->orderBy('human_olympiad.participation_grade')->pluck('human_olympiad.participation_grade');
 
-        $query = HumanOlympiad::query()
-            ->where('human_olympiad.olympiad_id', $olympiad->id)
-            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
-            ->where('students.school_id', $schoolId)
-            ->when($q !== '', fn ($qq) => $qq->where('students.fio', 'like', "%{$q}%"))
-            ->when($grade !== null, fn ($qq) => $qq->where('students.real_grade', $grade))
-            ->when($pgrade !== null, fn ($qq) => $qq->where('human_olympiad.participation_grade', $pgrade))
-            ->leftJoin('olympiad_max_scores as oms', $joinMax)
-            ->when($over, fn ($qq) => $qq->whereColumn('human_olympiad.score', '>', 'oms.max_score'))
+        $query = $this->filteredParticipations($olympiad, $schoolId, $q, $grade, $pgrade, $over)
             ->with('student:id,fio,real_grade,class_letter')
             ->select('human_olympiad.*');
 
@@ -165,7 +157,7 @@ class ResultController extends Controller
             ->distinct()->orderBy('class_letter')->pluck('class_letter');
 
         // Технология: справочник направлений и видов практик для выбора при вводе.
-        $isTechnology = $olympiad->subject === 'Технология';
+        $isTechnology = $olympiad->isTechnologySubject();
         $techProfiles = $isTechnology ? $this->techProfiles() : [];
 
         return Inertia::render('School/Results/Show', [
@@ -197,6 +189,90 @@ class ResultController extends Controller
             'school_name' => \App\Models\School::whereKey($schoolId)->value('full_name'),
             'teachers' => $this->teacherDirectory($schoolId),
         ]);
+    }
+
+    /** Участия школы по этой олимпиаде с теми же фильтрами, что и таблица показа (без select/пагинации). */
+    private function filteredParticipations(Olympiad $olympiad, int $schoolId, string $q, ?int $grade, ?int $pgrade, bool $over)
+    {
+        $joinMax = function ($j) use ($olympiad) {
+            $j->on('oms.grade', '=', 'human_olympiad.participation_grade')
+                ->where('oms.olympiad_id', '=', $olympiad->id);
+        };
+
+        return HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->where('students.school_id', $schoolId)
+            ->when($q !== '', fn ($qq) => $qq->where('students.fio', 'like', "%{$q}%"))
+            ->when($grade !== null, fn ($qq) => $qq->where('students.real_grade', $grade))
+            ->when($pgrade !== null, fn ($qq) => $qq->where('human_olympiad.participation_grade', $pgrade))
+            ->leftJoin('olympiad_max_scores as oms', $joinMax)
+            ->when($over, fn ($qq) => $qq->whereColumn('human_olympiad.score', '>', 'oms.max_score'));
+    }
+
+    /**
+     * Массовое удаление участий: по выбранным ID, по текущему фильтру таблицы,
+     * либо полностью все результаты школы по этой олимпиаде.
+     */
+    public function bulkDestroy(Request $request, Olympiad $olympiad): RedirectResponse
+    {
+        $school = $request->user()->school;
+        $schoolId = $school->id;
+
+        if (! $olympiad->isEntryOpenFor($school)) {
+            return back()->withErrors(['participation' => 'Ввод результатов по этой олимпиаде закрыт.']);
+        }
+
+        $validated = $request->validate([
+            'mode' => ['required', Rule::in(['selected', 'filtered', 'all'])],
+            'ids' => ['required_if:mode,selected', 'array'],
+            'ids.*' => ['integer'],
+        ]);
+
+        if ($validated['mode'] === 'selected') {
+            $count = HumanOlympiad::query()
+                ->where('human_olympiad.olympiad_id', $olympiad->id)
+                ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+                ->where('students.school_id', $schoolId)
+                ->whereIn('human_olympiad.id', $validated['ids'])
+                ->delete();
+        } elseif ($validated['mode'] === 'filtered') {
+            $q = trim((string) $request->input('q', ''));
+            $grade = $request->filled('grade') ? (int) $request->input('grade') : null;
+            $pgrade = $request->filled('pgrade') ? (int) $request->input('pgrade') : null;
+            $over = $request->boolean('over');
+            $count = $this->filteredParticipations($olympiad, $schoolId, $q, $grade, $pgrade, $over)->delete();
+        } else {
+            $count = HumanOlympiad::query()
+                ->where('human_olympiad.olympiad_id', $olympiad->id)
+                ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+                ->where('students.school_id', $schoolId)
+                ->delete();
+        }
+
+        // Если удалили все строки текущей страницы — переходим на последнюю существующую
+        // страницу того же вида, иначе оператор увидит пустой список при живой пагинации.
+        $q = trim((string) $request->input('q', ''));
+        $sort = array_key_exists($request->input('sort'), self::SORTABLE) ? $request->input('sort') : 'default';
+        $dir = $request->input('dir') === 'desc' ? 'desc' : 'asc';
+        $grade = $request->filled('grade') ? (int) $request->input('grade') : null;
+        $pgrade = $request->filled('pgrade') ? (int) $request->input('pgrade') : null;
+        $over = $request->boolean('over');
+        $remaining = $this->filteredParticipations($olympiad, $schoolId, $q, $grade, $pgrade, $over)->count();
+        $lastPage = max(1, (int) ceil($remaining / 25));
+        $requestedPage = max(1, (int) $request->input('page', 1));
+        $targetPage = min($requestedPage, $lastPage);
+
+        return redirect()->route('school.results.show', array_filter([
+            'olympiad' => $olympiad->id,
+            'q' => $q !== '' ? $q : null,
+            'sort' => $sort !== 'default' ? $sort : null,
+            'dir' => $sort !== 'default' ? $dir : null,
+            'grade' => $grade,
+            'pgrade' => $pgrade,
+            'over' => $over ?: null,
+            'page' => $targetPage > 1 ? $targetPage : null,
+        ], fn ($v) => $v !== null))->with('success', "Удалено участий: {$count}.");
     }
 
     /**

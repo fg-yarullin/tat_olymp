@@ -19,6 +19,15 @@ class Olympiad extends Model
     /** Максимум продления — часов от срока закрытия (results_deadline). */
     public const MAX_EXTENSION_HOURS = 48;
 
+    /** Название предмета «Технология» (переименован в «Труд (технология)», включая модули «1. ...»/«2. ...»). */
+    public const TECHNOLOGY_SUBJECT_PREFIX = 'Труд (технология)';
+
+    /** Признак олимпиады по технологии (профиль/практики берутся из справочника). */
+    public function isTechnologySubject(): bool
+    {
+        return str_starts_with((string) $this->subject, self::TECHNOLOGY_SUBJECT_PREFIX);
+    }
+
     /** Опубликованы ли результаты (открыт онлайн-показ, ввод заблокирован). */
     public function isPublished(): bool
     {

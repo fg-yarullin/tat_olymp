@@ -24,8 +24,11 @@ class GuestShowcaseTest extends TestCase
         parent::setUp();
         // Inertia рендерит app.blade.php с @vite — в тестах ассеты не собраны
         $this->withoutVite();
-        // Замораживаем время внутри дневного окна показа (12:00 по Europe/Moscow == 09:00 UTC)
-        Carbon::setTestNow(Carbon::parse('2026-06-09 09:00:00', 'UTC'));
+        // Замораживаем время внутри дневного окна показа (12:00 по Europe/Moscow == 09:00 UTC).
+        // Метка времени — именно Europe/Moscow (= config('app.timezone')): при активном
+        // Carbon::setTestNow() парсинг дат без явной таймзоны (в т.ч. касты Eloquent при чтении
+        // из БД) наследует таймзону замороженного «now», а не date_default_timezone_get().
+        Carbon::setTestNow(Carbon::parse('2026-06-09 12:00:00', 'Europe/Moscow'));
     }
 
     private function makeStudent(string $fio, string $birth = '2012-03-01'): Student

@@ -12,6 +12,9 @@ const ALL_GRADES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
 
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('ru-RU') : null);
+const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null);
+
 const gradesLabel = (grades) => {
     if (!grades || grades.length === 0 || grades.length === 11) return 'все';
     return grades.join(', ');
@@ -82,6 +85,10 @@ export default function OlympiadsIndex({ olympiads, filters, years, subjects, st
     // Продление ввода результатов (школьный этап). Держим id, объект берём из свежих props.
     const [extId, setExtId] = useState(null);
     const extOlympiad = olympiads.data.find((o) => o.id === extId) ?? null;
+
+    // Детальный просмотр строки: сводка + все действия в одной модалке.
+    const [detailsId, setDetailsId] = useState(null);
+    const detailsOlympiad = olympiads.data.find((o) => o.id === detailsId) ?? null;
     const [extSchools, setExtSchools] = useState([]);
     const [extAteFilter, setExtAteFilter] = useState('');
     const extForm = useForm({ phase: 'primary', scope: 'all', ate_id: '', msu_id: '', school_id: '', hours: 24 });
@@ -248,11 +255,11 @@ export default function OlympiadsIndex({ olympiads, filters, years, subjects, st
 
                     <div className="flex flex-wrap items-center gap-3">
                         <select
-                            value={filters.year ?? ''}
+                            value={filters.year ?? 'all'}
                             onChange={(e) => applyFilters({ year: e.target.value })}
                             className="rounded border-gray-300 text-sm"
                         >
-                            <option value="">Все учебные годы</option>
+                            <option value="all">Все учебные годы</option>
                             {years.map((y) => (
                                 <option key={y.id} value={y.id}>
                                     {y.name}
@@ -636,9 +643,8 @@ export default function OlympiadsIndex({ olympiads, filters, years, subjects, st
                                     <th className="px-4 py-3">Год</th>
                                     <th className="px-4 py-3">Предмет</th>
                                     <th className="px-4 py-3">Этап</th>
-                                    <th className="px-4 py-3">Уровень</th>
+                                    <th className="px-4 py-3">Сроки</th>
                                     <th className="px-4 py-3">Классы</th>
-                                    <th className="px-4 py-3">Участников</th>
                                     <th className="px-4 py-3">Опубл.</th>
                                     <th className="px-4 py-3"></th>
                                 </tr>
@@ -652,75 +658,30 @@ export default function OlympiadsIndex({ olympiads, filters, years, subjects, st
                                             <span className="ml-2 text-xs font-normal text-gray-400">#{o.id}</span>
                                         </td>
                                         <td className="px-4 py-3 text-gray-600">{STAGE_LABELS[o.stage]}</td>
-                                        <td className="px-4 py-3 text-gray-600">{LEVEL_LABELS[o.level] ?? o.level}</td>
+                                        <td className="px-4 py-3 text-xs text-gray-600">
+                                            <div>Проведение: {fmtDate(o.date_held) ?? '—'}</div>
+                                            {o.stage === 'school' ? (
+                                                o.results_deadline && <div>Ввод результатов до: {fmtDateTime(o.results_deadline)}</div>
+                                            ) : (
+                                                <>
+                                                    {o.results_deadline && <div>Первичные до: {fmtDateTime(o.results_deadline)}</div>}
+                                                    {o.final_results_deadline && <div>Итог до: {fmtDateTime(o.final_results_deadline)}</div>}
+                                                </>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-3 text-gray-600">{gradesLabel(o.grades)}</td>
-                                        <td className="px-4 py-3 text-gray-600">{o.participants}</td>
                                         <td className="px-4 py-3 text-xs">
                                             {o.published_at
                                                 ? <span className="text-green-700">{o.published_at}</span>
                                                 : <span className="text-gray-400">—</span>}
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {(o.stage === 'school' || o.stage === 'municipal') && (
-                                                <button
-                                                    onClick={() => openExtend(o)}
-                                                    className="mr-3 text-blue-600 hover:underline"
-                                                    title="Продлить ввод результатов"
-                                                >
-                                                    Продлить{o.extensions?.some((e) => e.active) ? ` (${o.extensions.filter((e) => e.active).length})` : ''}
-                                                </button>
-                                            )}
-                                            {o.stage === 'municipal' && (
-                                                <button
-                                                    onClick={() => openScans(o)}
-                                                    className="mr-3 text-purple-600 hover:underline"
-                                                    title="Загрузить сканы работ ZIP-архивом для конкретного АТЕ (имена файлов = шифры участников)"
-                                                >
-                                                    Сканы (ZIP)
-                                                </button>
-                                            )}
-                                            {o.stage === 'municipal' && (
-                                                <a
-                                                    href={route('help.show', 'scans')}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="mr-3 text-gray-400 hover:text-gray-600 hover:underline"
-                                                    title="Инструкция по загрузке сканов"
-                                                >
-                                                    ?
-                                                </a>
-                                            )}
-                                            {o.stage !== 'school' && !o.published && (
-                                                <button
-                                                    onClick={() => publish(o)}
-                                                    className="mr-3 text-green-600 hover:underline"
-                                                >
-                                                    Опубликовать
-                                                </button>
-                                            )}
-                                            {o.thresholds && Object.keys(o.thresholds).length > 0 && (
-                                                <button
-                                                    onClick={() => applyAutoStatus(o)}
-                                                    className="mr-3 text-amber-600 hover:underline"
-                                                    title="Расставить статусы по порогам для всех школ"
-                                                >
-                                                    Авто-статусы
-                                                </button>
-                                            )}
                                             <button
-                                                onClick={() => startEdit(o)}
-                                                className="mr-3 text-indigo-600 hover:underline"
+                                                onClick={() => setDetailsId(o.id)}
+                                                className="text-indigo-600 hover:underline"
                                             >
-                                                Изменить
+                                                Подробнее
                                             </button>
-                                            {o.participants === 0 && (
-                                                <button
-                                                    onClick={() => remove(o)}
-                                                    className="text-red-600 hover:underline"
-                                                >
-                                                    Удалить
-                                                </button>
-                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -743,6 +704,113 @@ export default function OlympiadsIndex({ olympiads, filters, years, subjects, st
                     </div>
                 </div>
             </div>
+
+            <Modal show={!!detailsOlympiad} onClose={() => setDetailsId(null)} maxWidth="lg">
+                {detailsOlympiad && (
+                    <div className="space-y-4 p-6">
+                        <div>
+                            <h3 className="font-semibold text-gray-800">
+                                {detailsOlympiad.subject} <span className="font-normal text-gray-400">#{detailsOlympiad.id}</span>
+                            </h3>
+                            <p className="text-sm text-gray-500">
+                                {detailsOlympiad.year} · {STAGE_LABELS[detailsOlympiad.stage]} этап · {LEVEL_LABELS[detailsOlympiad.level] ?? detailsOlympiad.level}
+                            </p>
+                        </div>
+
+                        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                            <dt className="text-gray-500">Классы</dt>
+                            <dd className="text-gray-800">{gradesLabel(detailsOlympiad.grades)}</dd>
+                            <dt className="text-gray-500">Участников</dt>
+                            <dd className="text-gray-800">{detailsOlympiad.participants}</dd>
+                            <dt className="text-gray-500">Дата проведения</dt>
+                            <dd className="text-gray-800">{fmtDate(detailsOlympiad.date_held) ?? '—'}</dd>
+                            {detailsOlympiad.results_deadline && (
+                                <>
+                                    <dt className="text-gray-500">{detailsOlympiad.stage === 'school' ? 'Ввод результатов до' : 'Первичные до'}</dt>
+                                    <dd className="text-gray-800">{fmtDateTime(detailsOlympiad.results_deadline)}</dd>
+                                </>
+                            )}
+                            {detailsOlympiad.stage !== 'school' && detailsOlympiad.final_results_deadline && (
+                                <>
+                                    <dt className="text-gray-500">Итог до</dt>
+                                    <dd className="text-gray-800">{fmtDateTime(detailsOlympiad.final_results_deadline)}</dd>
+                                </>
+                            )}
+                            <dt className="text-gray-500">Опубликовано</dt>
+                            <dd className={detailsOlympiad.published_at ? 'text-green-700' : 'text-gray-400'}>
+                                {detailsOlympiad.published_at ?? '—'}
+                            </dd>
+                        </dl>
+
+                        <div className="flex flex-wrap gap-3 border-t pt-4">
+                            {(detailsOlympiad.stage === 'school' || detailsOlympiad.stage === 'municipal') && (
+                                <button
+                                    onClick={() => { setDetailsId(null); openExtend(detailsOlympiad); }}
+                                    className="text-blue-600 hover:underline"
+                                    title="Продлить ввод результатов"
+                                >
+                                    Продлить{detailsOlympiad.extensions?.some((e) => e.active) ? ` (${detailsOlympiad.extensions.filter((e) => e.active).length})` : ''}
+                                </button>
+                            )}
+                            {detailsOlympiad.stage === 'municipal' && (
+                                <button
+                                    onClick={() => { setDetailsId(null); openScans(detailsOlympiad); }}
+                                    className="text-purple-600 hover:underline"
+                                    title="Загрузить сканы работ ZIP-архивом для конкретного АТЕ (имена файлов = шифры участников)"
+                                >
+                                    Сканы (ZIP)
+                                </button>
+                            )}
+                            {detailsOlympiad.stage === 'municipal' && (
+                                <a
+                                    href={route('help.show', 'scans')}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-gray-400 hover:text-gray-600 hover:underline"
+                                    title="Инструкция по загрузке сканов"
+                                >
+                                    Инструкция по сканам
+                                </a>
+                            )}
+                            {detailsOlympiad.stage !== 'school' && !detailsOlympiad.published && (
+                                <button
+                                    onClick={() => publish(detailsOlympiad)}
+                                    className="text-green-600 hover:underline"
+                                >
+                                    Опубликовать
+                                </button>
+                            )}
+                            {detailsOlympiad.thresholds && Object.keys(detailsOlympiad.thresholds).length > 0 && (
+                                <button
+                                    onClick={() => applyAutoStatus(detailsOlympiad)}
+                                    className="text-amber-600 hover:underline"
+                                    title="Расставить статусы по порогам для всех школ"
+                                >
+                                    Авто-статусы
+                                </button>
+                            )}
+                            <button
+                                onClick={() => { setDetailsId(null); startEdit(detailsOlympiad); }}
+                                className="text-indigo-600 hover:underline"
+                            >
+                                Изменить
+                            </button>
+                            {detailsOlympiad.participants === 0 && (
+                                <button
+                                    onClick={() => remove(detailsOlympiad)}
+                                    className="text-red-600 hover:underline"
+                                >
+                                    Удалить
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end border-t pt-3">
+                            <button type="button" onClick={() => setDetailsId(null)} className="rounded bg-gray-200 px-4 py-2 text-sm">Закрыть</button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             <Modal show={!!extOlympiad} onClose={() => setExtId(null)} maxWidth="lg">
                 {extOlympiad && (() => {

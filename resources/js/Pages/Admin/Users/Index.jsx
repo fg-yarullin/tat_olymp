@@ -25,6 +25,7 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
     const [showForm, setShowForm] = useState(false);
     const [search, setSearch] = useState(filters.q ?? '');
     const [fAte, setFAte] = useState(filters.ate_id ?? '');
+    const [fRole, setFRole] = useState(filters.role ?? '');
     const [schoolFilterAte, setSchoolFilterAte] = useState('');
     const [genPwd, setGenPwd] = useState('');
 
@@ -83,7 +84,7 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
     };
 
     const applyFilters = (overrides = {}) => {
-        const params = { q: search, ate_id: fAte, ...overrides };
+        const params = { q: search, ate_id: fAte, role: fRole, ...overrides };
         Object.keys(params).forEach((k) => {
             if (params[k] === '' || params[k] == null) delete params[k];
         });
@@ -133,6 +134,19 @@ export default function UsersIndex({ users, filters, roles, ates, schools }) {
                             <option value="">Все районы</option>
                             {ates.map((a) => (
                                 <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                        </select>
+                        <select
+                            value={fRole}
+                            onChange={(e) => {
+                                setFRole(e.target.value);
+                                applyFilters({ role: e.target.value });
+                            }}
+                            className="rounded border-gray-300 text-sm"
+                        >
+                            <option value="">Все роли</option>
+                            {roles.map((r) => (
+                                <option key={r.value} value={r.value}>{r.label}</option>
                             ))}
                         </select>
                         <form onSubmit={runSearch} className="flex gap-2">

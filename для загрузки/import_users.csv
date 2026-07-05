@@ -1,6 +1,55 @@
 ﻿ФИО;Email;Роль;Код привязки;Пароль
 Admin;fail.yarullin@odkzn.ru;admin;;password
-ROCRT;rocrt@mail.ru;admin;;password
+ROCRT;rocrt@mail.ru;roc_representative;;password
+Калимуллина Лейсан Рамилевна;leisan.kalimullina.78@mail.ru;municipal_coordinator;10;password
+Зарипова Гулия Гусмановна;gule4ka-75@mail.ru;municipal_coordinator;11;password
+Борисова Татьяна Валентиновна;btv.1981@yandex.ru;municipal_coordinator;12;password
+Галимова Алина Маратовна;alina.nabiullina.1992@mail.ru;municipal_coordinator;13;password
+Муртазина Наталья Юрьевна;natalya.murtazina87@yandex.ru;municipal_coordinator;14;password
+Яруллина Раиса Габдельбаровна;raisa_yarullinanov@mail.ru;municipal_coordinator;15;password
+Матвеева Лилия Гаязовна;liya-matveeva@internet.ru;municipal_coordinator;16;password
+Галиакберова Раиля Рамиловна;galiakberova.railya@mail.ru;municipal_coordinator;17;password
+Калимуллина Зульфия Рифовна;arskolimp@mail.ru;municipal_coordinator;18;password
+Магсумова Эльмира Ринатовна;ilysa2000@mail.ru;municipal_coordinator;19;password
+bavly;user@bavly.ru;municipal_coordinator;20;password
+Петрова Гульназ Нурулловна;gulnazp13@yandex.ru;municipal_coordinator;21;password
+Балашова Наталья Мухамедовна;uobalashova2013@yandex.ru;municipal_coordinator;22;password
+Хусниева Ильгиза Илфрузовна;khusnieva.ilgiza@mail.ru;municipal_coordinator;23;password
+Лысева Анастасия Юрьевна;anastasia_2007_m@mail.ru;municipal_coordinator;24;password
+Юнусова Салима Фандусовна;rzimkgora@mail.ru;municipal_coordinator;25;password
+Абишева Алена Петровна;naberezhnye_chelny_rt@mail.ru;municipal_coordinator;26;password
+Низамова Фания Джамилевна;nfanija74@yandex.ru;municipal_coordinator;27;password
+Махмутова Гульшат Разиновна;mahmutova_gulshat@mail.ru;municipal_coordinator;28;password
+Аюпова Венера Мухлисулловна;venera.ayupova2020@mail.ru;municipal_coordinator;29;password
+Гайсина Ольга Борисовна;olga.gaisina@mail.ru;municipal_coordinator;30;password
+Русова Марина Михайловна;rusova_1980@mail.ru;municipal_coordinator;31;password
+Боброва Елена Сергеевна;Kamust116@yandex.ru;municipal_coordinator;32;password
+Идиятуллина Ландыш Ханафиевна;detsad_chulpan@mail.ru;municipal_coordinator;33;password
+Нуруллина Юлия Владимировна;nyr.uliya@yandex.ru;municipal_coordinator;34;password
+Минвалеева Ирина Николаевна;minvaleeva-imc@mail.ru;municipal_coordinator;35;password
+Губьянова Оксана Михайловна;zaika24ooo@yandex.ru;municipal_coordinator;36;password
+Мартынова Лариса Аркадьевна;lora.vlad80@mail.ru;municipal_coordinator;37;password
+Ахмедова Наргиз Чингиз кызы;nargiz1993ahmedova@yandex.ru;municipal_coordinator;38;password
+Баева Лилия Ахияровна;liliya.baeva@tatar.ru;municipal_coordinator;39;password
+Тарманова Лилия Фазулзяновна;Iiya.tarmanova@mail.ru;municipal_coordinator;40;password
+Сираева Гульфия Лябибовна;89178644206@yandex.ru;municipal_coordinator;41;password
+Таймуллина Татьяна Николаевна;taymullina.t@yandex.ru;municipal_coordinator;42;password
+Назарова Оксана Евгеньевна;oksana.nazarova.2013@list.ru;municipal_coordinator;43;password
+Хисамова Лейсан Фирдавсовна;xisamova75@mail.ru;municipal_coordinator;44;password
+Капитонова Гульназ Тагировна;gulnaz-kap@mail.ru;municipal_coordinator;45;password
+Ахмадуллина Айгуль Флеровна;A.aigul2010@yandex.ru;municipal_coordinator;46;password
+Наумова Мария Александровна;naumova-mariya73@mail.ru;municipal_coordinator;47;password
+Ромашкина Дарья Михайловна;d.romashkina@list.ru;municipal_coordinator;48;password
+Хабутдинова Гузалия Фаязовна;guzelfajazovna@yandex.ru;municipal_coordinator;49;password
+Якупова Линара Канифовна;linara76@mail.ru;municipal_coordinator;50;password
+Киричук Наталья Михайловна;natalya.kirichuk@mail.ru;municipal_coordinator;51;password
+Балякина Ольга Ивановна;Olgaivanovna86@yandex.ru;municipal_coordinator;52;password
+Гареева Айгуль Рузалиновна;gar_aigul@mail.ru;municipal_coordinator;53;password
+Авиастроительный-Ново-Савиновский;avianov@odkzn.ru;municipal_coordinator;54;password
+Вахитовский-Приволжский;vahpril@odkzn.ru;municipal_coordinator;55;password
+km;km@test.t;municipal_coordinator;56;password
+Кировский-Московский;kirmos@odkzn.ru;municipal_coordinator;56;password
+Советский район;sovet@odkzn.ru;municipal_coordinator;60;password
 Мирсаяпова Лилия Талгатовна;0001@mail.m;school_operator;101001;password
 Муфтахутдинова Наталья Анатольевна;0002@mail.m;school_operator;101002;password
 Урюпина Елена Александровна;0003@mail.m;school_operator;101003;password
@@ -17,6 +66,8 @@ ROCRT;rocrt@mail.ru;admin;;password
 Михайлова Елена Дмитриевна;0015@mail.m;school_operator;104016;password
 Фархушина Люзия Гаязовна;0016@mail.m;school_operator;104018;password
 Гинатуллина Гульназ Ульфатовна;0017@mail.m;school_operator;104020;password
+Ахметшина Айсылу Ахметгараевна;gmurzanaeva@mail.ru;school_operator;104021;password
+Алиева Рафиля Мунировна;krindi@list.ru;school_operator;104022;password
 Бородина Юлия Алексеевна;Krotova_1997@mail.ru;school_operator;111002;password
 Музафарова Алсу Фандасовна;0019@mail.m;school_operator;111003;password
 Ширеева Алсу Сагитовна;0020@mail.m;school_operator;111004;password
@@ -40,6 +91,7 @@ ROCRT;rocrt@mail.ru;admin;;password
 Зиганшина Миляуша Рафиковна;0038@mail.m;school_operator;114032;password
 Регина Нафисовна Давлетшина;Scab.Azn@yandex.ru;school_operator;114034;password
 Гимаева Разиля Хамитовна;Sclp.Azn@yandex.ru;school_operator;114035;password
+Нуриева Венера Мунировна;javenera@mail.ru;school_operator;114036;password
 Маклакова Юлия Викторовна;0041@mail.m;school_operator;121001;password
 Шакирова Марьям Ваккасовна;0042@mail.m;school_operator;121002;password
 Давлетшина Лейсан Амирзяновна;0043@mail.m;school_operator;121003;password
@@ -114,7 +166,6 @@ ROCRT;rocrt@mail.ru;admin;;password
 Валеева Илькай Салимовна;0113@mail.m;school_operator;144013;password
 Баранова Ирина Анатольевна;0114@mail.m;school_operator;144017;password
 Сунаева Ляйсан Ханифовна;0115@mail.m;school_operator;144021;password
-Искандарова Альфинур Дамировна;0116@mail.m;school_operator;150201;password
 Калмыкова Людмила Александровна;tahtala.sch@mail.ru;school_operator;152003;password
 Зиганшина Рамиля Габбасовна;0118@mail.m;school_operator;152006;password
 Букарцева Светлана Алексеевна;0119@mail.m;school_operator;152013;password
@@ -132,6 +183,7 @@ ROCRT;rocrt@mail.ru;admin;;password
 Губайдуллина Гузелия Рифхатовна;0132@mail.m;school_operator;154020;password
 Давлетшина Гульназ Нургалеевна;0133@mail.m;school_operator;154023;password
 Зиннатуллина Чечкя Саетовна;0134@mail.m;school_operator;154024;password
+Искандарова Альфинур Дамировна;0116@mail.m;school_operator;157201;password
 Марданшина Лейсан Тагирзяновна;sweetdreams@mail.ru;school_operator;161001;password
 Гамирова Гульнур Салимзяновна;gulnur.gamirova.94@bk.ru;school_operator;161002;password
 Мануйлов Максим Александрович;manujlow.m@yandex.ru;school_operator;161003;password
@@ -190,6 +242,7 @@ ROCRT;rocrt@mail.ru;admin;;password
 Мубаракшина Валентина Ивановна;mubarakshina.v@bk.ru;school_operator;165002;password
 Дударева Татьяна Викторовна;0191@mail.m;school_operator;165003;password
 Мукимова Фарида Фаридовна;0192@mail.m;school_operator;165004;password
+Ксения Викторовна Никифоркина;knikiforkina@mail.ru;school_operator;165005;password
 Шарафуллина Гузель Фаритовна;0193@mail.m;school_operator;171002;password
 Валиуллина Надежда Николаевна;0194@mail.m;school_operator;172001;password
 Прокофьева Алена Дмитриевна;0195@mail.m;school_operator;172004;password
@@ -208,6 +261,8 @@ ROCRT;rocrt@mail.ru;admin;;password
 Залялиева Лилия Ришатовна;0208@mail.m;school_operator;174020;password
 Гайнутдинова Алсу Фагимовна;0209@mail.m;school_operator;174023;password
 Хайруллина Лейсан Назимовна;0210@mail.m;school_operator;174024;password
+Гисматова Эльвира Фаритовна;bulixchi1@mail.ru;school_operator;174025;password
+Мубаракшина Энже Муллануровна;lilya.khayrullina.74@mail.ru;school_operator;174026;password
 Хоженцева Светлана Фидаилевна;0211@mail.m;school_operator;181001;password
 Саляхова Альбина Абдуловна;s2.ars@tatar.ru;school_operator;181002;password
 Гарапшина Ляйсан Илгизовна;garapshina79@mail.ru;school_operator;181003;password
@@ -426,6 +481,8 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Хусаинова Эндже Ильдусовна;0426@mail.m;school_operator;255021;password
 Габдуллина Люция Раисовна;0427@mail.m;school_operator;255025;password
 Ибрагимова Рамиля Фаритовна;0428@mail.m;school_operator;256025;password
+Казакова Елена Михайловна;vsosh6.gabashi@mail.ru;school_operator;256026;password
+Кузюкова Ольга Валерьевна;schboratinskiy@yandex.ru;school_operator;256027;password
 Канашова Лейля Харисовна;leyla.kanashova@mail.ru;school_operator;261001;password
 Фролова Юлия Юрьевна;frolova-school@mail.ru;school_operator;261005;password
 Хасанова Лилия Флеровна;sch6_chelny@mail.ru;school_operator;261006;password
@@ -501,6 +558,10 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Сафиуллин Ильшат Тагирович;0501@mail.m;school_operator;263084;password
 Тимербаева Гузель Хамитовна;0502@mail.m;school_operator;265001;password
 Зеленина Ирина Маратовна;z.irina38@bk.ru;school_operator;265002;password
+Асадулина Лилия Галиевна;Lili-16@bk.ru;school_operator;265003;password
+Давыдова Яна Михайловна;Soshvesta_chelny@mail.ru;school_operator;265004;password
+Вотяков Семен Анатольевич;school@um-pokolenie.ru;school_operator;265005;password
+Гимадиева Лидия Вячеславовна;gimadieva@mail.ru;school_operator;265006;password
 Хафизова Гульнара Якубовна;0504@mail.m;school_operator;272001;password
 Басырова Разида Заудатовна;0505@mail.m;school_operator;272003;password
 Петрова Валентина Николаевна;0506@mail.m;school_operator;272004;password
@@ -554,6 +615,7 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Мухаметзянова Гульназ Сабирзяновна;283013@mail.m;school_operator;283013;password
 Хусаинова Гульчачак Равиловна;0555@mail.m;school_operator;284015;password
 Губайдуллина Зульфира Ниязовна;0556@mail.m;school_operator;284020;password
+Тиникова Альфия Ханбялевна;alfiyatinikova1958@gmail.com;school_operator;284021;password
 Слободина Елена Александровна;0557@mail.m;school_operator;291001;password
 Галимова Розалия Кирамутдиновна;0558@mail.m;school_operator;291002;password
 Ягудина Клара Гапбасовна;0559@mail.m;school_operator;291003;password
@@ -634,7 +696,6 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Равилов Фарит Рашитович;0634@mail.m;school_operator;321001;password
 Феткулова Ильмира Ирековна;0635@mail.m;school_operator;321002;password
 Климчук Анастасия Николаевна;0636@mail.m;school_operator;321003;password
-Шайдуллина Римма Габдрашитовна;lensn13@mail.ru;school_operator;355004;password
 Семагина Наталья Геннадьевна;kshi-zaton@rambler.ru;school_operator;321017;password
 Каримуллин Азат Рауфович;0639@mail.m;school_operator;322005;password
 Маслова Гульсина Мунировна;0640@mail.m;school_operator;322006;password
@@ -674,10 +735,6 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Габбасова Гамиля Магсумовна;0675@mail.m;school_operator;334022;password
 Абаева Ландыш Айдаровна;0676@mail.m;school_operator;334023;password
 Нигматуллина Гульназ Нурисламовна ;0677@mail.m;school_operator;334082;password
-Музеева Мадина Алдангоровна;0678@mail.m;school_operator;340005;password
-Иванова Алла Александровна;0679@mail.m;school_operator;340017;password
-Павлова Татьяна Дмитриевна;punktum@mail.ru;school_operator;340019;password
-Фатыхова Рафида Фоатовна;0681@mail.m;school_operator;340020;password
 Аникина Екатерина Владимировна;sch228@mail.ru;school_operator;341001;password
 Махмутова Айгуль Ришатовна;Mbou.Lsch2@tatar.ru;school_operator;341002;password
 Хасбиева Савия Ахлиевна;0684@mail.m;school_operator;342003;password
@@ -700,6 +757,12 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Сунгатова Гулуса Миннулловна;gulusa4@mail.ru;school_operator;344011;password
 Саляхова Гульгена Габдулловна;0702@mail.m;school_operator;344016;password
 Гарафиева Рушания Ахмадулловна;0703@mail.m;school_operator;344024;password
+Ахметова Роза Ильдусовна;Ahmetova.roza2011@yandex.ru;school_operator;344025;password
+Курбангалиева Альфия Ринатовна;garmonija2024@mail.ru;school_operator;344026;password
+Музеева Мадина Алдангоровна;0678@mail.m;school_operator;347005;password
+Иванова Алла Александровна;0679@mail.m;school_operator;347017;password
+Павлова Татьяна Дмитриевна;punktum@mail.ru;school_operator;347019;password
+Фатыхова Рафида Фоатовна;0681@mail.m;school_operator;347020;password
 Модина Ксения Николаевна;0704@mail.m;school_operator;351001;password
 Галиева Дания Ринатовна;0705@mail.m;school_operator;351002;password
 Журавлева Марина Петровна;0706@mail.m;school_operator;351003;password
@@ -732,6 +795,7 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Ишниязов Ренат Дильминович;0733@mail.m;school_operator;355001;password
 Галимова Алия Тагировна;0734@mail.m;school_operator;355002;password
 Хабибуллина Лилия Талгатовна;0735@mail.m;school_operator;355003;password
+Шайдуллина Римма Габдрашитовна;lensn13@mail.ru;school_operator;355004;password
 Зиннатова Альфия Гафуровна;0736@mail.m;school_operator;361001;password
 Лукманова Ильнара Нагимовна;0737@mail.m;school_operator;361002;password
 Хайруллина Гульнара Кафилевна;s3.mamadish@mail.ru;school_operator;361003;password
@@ -891,6 +955,8 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Билалова Алсу Минневакилевна;0894@mail.m;school_operator;414005;password
 Вафина Айгуль Ахатовна;0895@mail.m;school_operator;414006;password
 Зарипов Рашат Рашитович;0896@mail.m;school_operator;414007;password
+Шакирова Илюса Назиповна;ilusa.ilusa@yandex.ru;school_operator;414008;password
+Семенова Мария Петровна;sch9392015@mail.ru;school_operator;414009;password
 Булыгина Наталия Алексеевна;punk301271@yandex.ru;school_operator;421028;password
 Емукова Альбина Анатольевна;albinaemukova@gmail.com;school_operator;421029;password
 Мензелеева Наталья Николаевна;0899@mail.m;school_operator;421030;password
@@ -1064,6 +1130,7 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Биктагирова Айгуль Гильфановна;2070@mail.m;school_operator;504007;password
 Мифтахова Салима Габдулловна;2071@mail.m;school_operator;504008;password
 Сафиуллина Гульнара Тахаутдиновна;sgulnara001@mail.ru;school_operator;504011;password
+Гарифуллин Римат Мударисович;rimatgarry@mail.ru;school_operator;504012;password
 Музафаров Ильнар Гильфанович;2074@mail.m;school_operator;504015;password
 Заббарова Гульнара Назиповна;2075@mail.m;school_operator;504016;password
 Малешина Наталья Петровна;2076@mail.m;school_operator;512001;password
@@ -1091,7 +1158,6 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Максумова Гулия Инсафовна;2098@mail.m;school_operator;514017;password
 Лукманова Резидя Якуповна ;2099@mail.m;school_operator;514018;password
 Билялов Фаиз Тауфикович;2100@mail.m;school_operator;514022;password
-Николавеа Зульфия Мингалимовна;mingalimovna@mail.ru;school_operator;520014;password
 Гасишвили Марина Леонидовна;m-gasishvili@mail.ru;school_operator;521001;password
 Лачугина Елена Евгеньевна;elena.lachugina@mail.ru;school_operator;521002;password
 Муратова Наталья Александровна;2104@mail.m;school_operator;521003;password
@@ -1120,6 +1186,7 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Валиева Фарида Мансуровна;2127@mail.m;school_operator;524025;password
 Галиева Гульгена Рамилевна;2025@mail.m;school_operator;524026;password
 Абдуллина Разия Рафиковна;2129@mail.m;school_operator;525001;password
+Николавеа Зульфия Мингалимовна;mingalimovna@mail.ru;school_operator;527014;password
 Янгулова Лейла Фанисовна;2130@mail.m;school_operator;531002;password
 Тагирова Алина Зайтуновна;2131@mail.m;school_operator;531003;password
 Иламова Зульфия Нинелевна;2132@mail.m;school_operator;531004;password
@@ -1134,7 +1201,6 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Камалтдинова Миляуша Мунавировна;2141@mail.m;school_operator;535001;password
 Исхакова Зульфия Наиловна;2142@mail.m;school_operator;535002;password
 Гибадуллина Гузель Насимовна;2143@mail.m;school_operator;535003;password
-Хуснутдинова Альбина Махмутовна;3000@mail.m;school_operator;540014;password
 Мадиярова Золфия Галямутдиновна;3001@mail.m;school_operator;541005;password
 Атлашкина Эльза Альбертовна;3002@mail.m;school_operator;541010;password
 Тимергалеева Альбина Наиловна;3003@mail.m;school_operator;541026;password
@@ -1153,8 +1219,11 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Камалова Эльмира Рашатовна ;3016@mail.m;school_operator;541147;password
 Мухарлямова Гульназ Насировна;3017@mail.m;school_operator;541168;password
 Исакова Лилия Раисовна;3018@mail.m;school_operator;543091;password
+Железкова Наталья Ивановна;3194@mail.m;school_operator;543092;password
+Хуснутдинова Альбина Махмутовна;3000@mail.m;school_operator;547014;password
 Сабитова Алина Раушановна;3019@mail.m;school_operator;551001;password
 Садыкова Аида Анваровна;3020@mail.m;school_operator;551003;password
+Рощектаев Андрей Владимирович;3193@mail.m;school_operator;551004;password
 Ахметзянов Ильфар Зуфарович;3021@mail.m;school_operator;551005;password
 Шамаев Дмтрий Геннадьевич;3022@mail.m;school_operator;551006;password
 Лебедев Виталий Сергеевич;3023@mail.m;school_operator;551007;password
@@ -1178,6 +1247,12 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Загидуллина Эльвира Котдусовна;3041@mail.m;school_operator;551131;password
 Рамазанова Чулпан Разяповна;3042@mail.m;school_operator;553001;password
 Воропаева Ландыш Фаизовна;3043@mail.m;school_operator;553027;password
+Мистякова Назлыгуль Фанисовна;3111@mail.m;school_operator;553028;password
+Юсупова Наилия Ибрагимовна;3195@mail.m;school_operator;557001;password
+Хуснуллина Алия Азатовна;khusnullina.aliya@yandex.ru;school_operator;557002;password
+Ахметзянов Ильназ Зуфарович;3189@mail.m;school_operator;557003;password
+Салахова Ландыш Ихтирамовна;3191@mail.m;school_operator;557004;password
+Катаева Марина Александровна;3145@mail.m;school_operator;557005;password
 Шигапов Рамиль Радикович;3044@mail.m;school_operator;561004;password
 Плющенко Инна Викторовна;3045@mail.m;school_operator;561008;password
 Амирова Гелюся Хамзовна;3046@mail.m;school_operator;561032;password
@@ -1245,7 +1320,6 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Шайдуллин Эмиль Ирекович;kzn155@inbox.ru;school_operator;583155;password
 Мардеева Румия Салиховна;3109@mail.m;school_operator;585001;password
 Локотунина Наталья Васильевна;3110@mail.m;school_operator;585002;password
-Мистякова Назлыгуль Фанисовна;3111@mail.m;school_operator;553028;password
 Аристова Анастасия Радифовна;3112@mail.m;school_operator;591002;password
 Мохначева Александра Сергеевна;3113@mail.m;school_operator;591005;password
 Ахметзянова Алия Маратовна;3114@mail.m;school_operator;591006;password
@@ -1322,89 +1396,7 @@ Cабирова Гульназ Мансуровна;0422@mail.m;school_operator;
 Галиахметов Артур Каримович;3186@mail.m;school_operator;605002;password
 Марасинская Анастасия Андреевна;3187@mail.m;school_operator;605003;password
 Абульханова Зиля Равилевна;3188@mail.m;school_operator;605004;password
-test;test@test.t;school_operator;611001;password
-Калимуллина Лейсан Рамилевна;leisan.kalimullina.78@mail.ru;municipal_coordinator;10;password
-Зарипова Гулия Гусмановна;gule4ka-75@mail.ru;municipal_coordinator;11;password
-Борисова Татьяна Валентиновна;btv.1981@yandex.ru;municipal_coordinator;12;password
-Галимова Алина Маратовна;alina.nabiullina.1992@mail.ru;municipal_coordinator;13;password
-Муртазина Наталья Юрьевна;natalya.murtazina87@yandex.ru;municipal_coordinator;14;password
-Яруллина Раиса Габдельбаровна;raisa_yarullinanov@mail.ru;municipal_coordinator;15;password
-Матвеева Лилия Гаязовна;liya-matveeva@internet.ru;municipal_coordinator;16;password
-Галиакберова Раиля Рамиловна;galiakberova.railya@mail.ru;municipal_coordinator;17;password
-Калимуллина Зульфия Рифовна;arskolimp@mail.ru;municipal_coordinator;18;password
-Магсумова Эльмира Ринатовна;ilysa2000@mail.ru;municipal_coordinator;19;password
-bavly;user@bavly.ru;municipal_coordinator;20;password
-Петрова Гульназ Нурулловна;gulnazp13@yandex.ru;municipal_coordinator;21;password
-Балашова Наталья Мухамедовна;uobalashova2013@yandex.ru;municipal_coordinator;22;password
-Хусниева Ильгиза Илфрузовна;khusnieva.ilgiza@mail.ru;municipal_coordinator;23;password
-Лысева Анастасия Юрьевна;anastasia_2007_m@mail.ru;municipal_coordinator;24;password
-Юнусова Салима Фандусовна;rzimkgora@mail.ru;municipal_coordinator;25;password
-Хидиятов Ильнар Рузалевич;hidiatov@mail.ru;municipal_coordinator;100;password
-Казань;kzn@odkzn.ru;municipal_coordinator;100;password
-Низамова Фания Джамилевна;nfanija74@yandex.ru;municipal_coordinator;27;password
-Махмутова Гульшат Разиновна;mahmutova_gulshat@mail.ru;municipal_coordinator;28;password
-Аюпова Венера Мухлисулловна;venera.ayupova2020@mail.ru;municipal_coordinator;29;password
-Гайсина Ольга Борисовна;olga.gaisina@mail.ru;municipal_coordinator;30;password
-Русова Марина Михайловна;rusova_1980@mail.ru;municipal_coordinator;31;password
-Боброва Елена Сергеевна;Kamust116@yandex.ru;municipal_coordinator;32;password
-Идиятуллина Ландыш Ханафиевна;detsad_chulpan@mail.ru;municipal_coordinator;33;password
-Нуруллина Юлия Владимировна;nyr.uliya@yandex.ru;municipal_coordinator;34;password
-Минвалеева Ирина Николаевна;minvaleeva-imc@mail.ru;municipal_coordinator;35;password
-Губьянова Оксана Михайловна;zaika24ooo@yandex.ru;municipal_coordinator;36;password
-Мартынова Лариса Аркадьевна;lora.vlad80@mail.ru;municipal_coordinator;37;password
-Ахмедова Наргиз Чингиз кызы;nargiz1993ahmedova@yandex.ru;municipal_coordinator;38;password
-Баева Лилия Ахияровна;liliya.baeva@tatar.ru;municipal_coordinator;39;password
-Абишева Алена Петровна;naberezhnye_chelny_rt@mail.ru;municipal_coordinator;26;password
-Тарманова Лилия Фазулзяновна;Iiya.tarmanova@mail.ru;municipal_coordinator;40;password
-Сираева Гульфия Лябибовна;89178644206@yandex.ru;municipal_coordinator;41;password
-Таймуллина Татьяна Николаевна;taymullina.t@yandex.ru;municipal_coordinator;42;password
-Назарова Оксана Евгеньевна;oksana.nazarova.2013@list.ru;municipal_coordinator;43;password
-Хисамова Лейсан Фирдавсовна;xisamova75@mail.ru;municipal_coordinator;44;password
-Капитонова Гульназ Тагировна;gulnaz-kap@mail.ru;municipal_coordinator;45;password
-Ахмадуллина Айгуль Флеровна;A.aigul2010@yandex.ru;municipal_coordinator;46;password
-Наумова Мария Александровна;naumova-mariya73@mail.ru;municipal_coordinator;47;password
-Ромашкина Дарья Михайловна;d.romashkina@list.ru;municipal_coordinator;48;password
-Хабутдинова Гузалия Фаязовна;guzelfajazovna@yandex.ru;municipal_coordinator;49;password
-Якупова Линара Канифовна;linara76@mail.ru;municipal_coordinator;50;password
-Киричук Наталья Михайловна;natalya.kirichuk@mail.ru;municipal_coordinator;51;password
-Балякина Ольга Ивановна;Olgaivanovna86@yandex.ru;municipal_coordinator;52;password
-Гареева Айгуль Рузалиновна;gar_aigul@mail.ru;municipal_coordinator;53;password
-Рощектаев Андрей Владимирович;3193@mail.m;school_operator;551004;password
-Юсупова Наилия Ибрагимовна;3195@mail.m;school_operator;559001;password
-Test UO;uo@test.t;municipal_coordinator;61;password
-Uo2;uo2@test.t;municipal_coordinator;61;password
-uo3;uo3@test.t;municipal_coordinator;61;password
-Советский район;sovet@odkzn.ru;municipal_coordinator;60;password
-Тиникова Альфия Ханбялевна;alfiyatinikova1958@gmail.com;school_operator;284021;password
-Хуснуллина Алия Азатовна;khusnullina.aliya@yandex.ru;school_operator;559002;password
-km;km@test.t;municipal_coordinator;56;password
-Кировский-Московский;kirmos@odkzn.ru;municipal_coordinator;56;password
-Вахитовский-Приволжский;vahpril@odkzn.ru;municipal_coordinator;55;password
-Авиастроительный-Ново-Савиновский;avianov@odkzn.ru;municipal_coordinator;54;password
-Алиева Рафиля Мунировна;krindi@list.ru;school_operator;104022;password
-Ахметшина Айсылу Ахметгараевна;gmurzanaeva@mail.ru;school_operator;104021;password
-Асадулина Лилия Галиевна;Lili-16@bk.ru;school_operator;265003;password
-Давыдова Яна Михайловна;Soshvesta_chelny@mail.ru;school_operator;265004;password
-Салахова Ландыш Ихтирамовна;3191@mail.m;school_operator;559004;password
-Ахметзянов Ильназ Зуфарович;3189@mail.m;school_operator;559003;password
 Миннуллина Айгуль Ильдусовна;3190@mail.m;school_operator;605005;password
 Садыкова Альбина Георгиевна;3192@mail.m;school_operator;605006;password
-Sam S T;sam@test.t;school_operator;611002;password
-Ivan;ivan@test.me;school_operator;611003;password
-Ахметова Роза Ильдусовна;Ahmetova.roza2011@yandex.ru;school_operator;344025;password
-Курбангалиева Альфия Ринатовна;garmonija2024@mail.ru;school_operator;344026;password
-Нуриева Венера Мунировна;javenera@mail.ru;school_operator;114036;password
-Вотяков Семен Анатольевич;school@um-pokolenie.ru;school_operator;265005;password
-Гарифуллин Римат Мударисович;rimatgarry@mail.ru;school_operator;504012;password
-Железкова Наталья Ивановна;3194@mail.m;school_operator;543092;password
-Гисматова Эльвира Фаритовна;bulixchi1@mail.ru;school_operator;174025;password
-Казакова Елена Михайловна;vsosh6.gabashi@mail.ru;school_operator;256026;password
-Кузюкова Ольга Валерьевна;schboratinskiy@yandex.ru;school_operator;256027;password
 Байрамова Элина Ильдаровна;3196@mail.m;school_operator;605007;password
-Ксения Викторовна Никифоркина;knikiforkina@mail.ru;school_operator;165005;password
 Степанищева Ольга Викторовна;3197@mail.m;school_operator;605008;password
-Гимадиева Лидия Вячеславовна;gimadieva@mail.ru;school_operator;265006;password
-Мубаракшина Энже Муллануровна;lilya.khayrullina.74@mail.ru;school_operator;174026;password
-Шакирова Илюса Назиповна;ilusa.ilusa@yandex.ru;school_operator;414008;password
-Семенова Мария Петровна;sch9392015@mail.ru;school_operator;414009;password
-Катаева Марина Александровна;3145@mail.m;school_operator;559005;password

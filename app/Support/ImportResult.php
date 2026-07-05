@@ -12,6 +12,9 @@ class ImportResult
 
     public int $updated = 0;
 
+    /** Строки, намеренно пропущенные без данных (напр. балл ещё не выставлен) — не ошибка. */
+    public int $skipped = 0;
+
     /** @var list<array{line:int, reason:string, row:array<int, mixed>}> */
     public array $failures = [];
 
