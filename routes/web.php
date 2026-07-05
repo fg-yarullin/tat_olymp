@@ -273,6 +273,7 @@ Route::middleware(['auth', 'user.active', 'role:municipal_coordinator,kazan_subj
         Route::post('/results/participation/{participation}/appeal', [MunicipalResultController::class, 'storeAppeal'])->name('results.appeal');
         Route::delete('/results/participation/{participation}', [MunicipalResultController::class, 'destroy'])->name('results.destroy');
         Route::post('/results/{olympiad}/bulk-destroy', [MunicipalResultController::class, 'bulkDestroy'])->name('results.bulk-destroy');
+        Route::post('/results/{olympiad}/clear-scores', [MunicipalResultController::class, 'clearScores'])->name('results.clear-scores');
 
         // Председатели предметных комиссий своего АТЕ (создание с привязкой к олимпиаде)
         Route::get('/chairs', [MunicipalChairController::class, 'index'])->name('chairs.index');

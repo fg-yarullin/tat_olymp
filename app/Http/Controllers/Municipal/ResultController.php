@@ -204,6 +204,58 @@ class ResultController extends Controller
         ], fn ($v) => $v !== null))->with('success', "Удалено участников: {$count}.");
     }
 
+    /**
+     * Массовая очистка первичных баллов МЭ: по выбранным ID, по текущему фильтру,
+     * либо у всех участников олимпиады (в рамках зоны координатора). Затрагивает
+     * только первичный балл (и баллы по заданиям); участие не удаляется.
+     */
+    public function clearScores(Request $request, Olympiad $olympiad): RedirectResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateId = $request->user()->ate_id;
+        $ateIds = $request->user()->municipalAteScope();
+
+        if (! $olympiad->isEntryOpenForAte($ateId, 'primary')) {
+            return back()->withErrors(['primary_score' => 'Ввод первичных результатов закрыт.']);
+        }
+
+        $validated = $request->validate([
+            'mode' => ['required', Rule::in(['selected', 'filtered', 'all'])],
+            'ids' => ['required_if:mode,selected', 'array'],
+            'ids.*' => ['integer'],
+        ]);
+
+        if ($validated['mode'] === 'selected') {
+            $query = $this->participantBaseQuery($olympiad, $ateIds)->whereIn('human_olympiad.id', $validated['ids']);
+        } elseif ($validated['mode'] === 'filtered') {
+            $q = trim((string) $request->input('q', ''));
+            $grade = $request->filled('grade') ? (int) $request->input('grade') : null;
+            $pgrade = $request->filled('pgrade') ? (int) $request->input('pgrade') : null;
+            $schoolFilter = $request->filled('school') ? (int) $request->input('school') : null;
+            $query = $this->applyParticipantFilters(
+                $this->participantBaseQuery($olympiad, $ateIds), $q, $grade, $pgrade, $schoolFilter
+            );
+        } else {
+            $query = $this->participantBaseQuery($olympiad, $ateIds);
+        }
+
+        $ids = $query->pluck('human_olympiad.id');
+        $hasQuestions = (int) $olympiad->question_count > 0;
+        $count = 0;
+        HumanOlympiad::whereIn('id', $ids)->chunkById(200, function ($rows) use (&$count, $hasQuestions) {
+            foreach ($rows as $ho) {
+                $ho->primary_score = null;
+                if ($hasQuestions) {
+                    $ho->question_scores = null;
+                }
+                $ho->save();
+                $count++;
+            }
+        });
+
+        return back()->with('success', "Баллы очищены у участников: {$count}.");
+    }
+
     /** Страница «Состав МЭ» — формирование списка приглашённых. */
     public function show(Request $request, Olympiad $olympiad): Response
     {

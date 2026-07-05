@@ -282,4 +282,126 @@ class MunicipalEntryTest extends TestCase
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
+
+    public function test_clear_scores_selected_only_clears_primary_score(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $p1 = $this->participant($school, $olympiad);
+        $p1->update(['primary_score' => 30, 'appeal_addition' => 5, 'final_score' => 35]);
+        $p2 = $this->participant($school, $olympiad);
+        $p2->update(['primary_score' => 20]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'selected', 'ids' => [$p1->id]])
+            ->assertSessionHasNoErrors();
+
+        $fresh1 = $p1->fresh();
+        $this->assertNull($fresh1->primary_score);
+        // Апелляция не трогается; итог пересчитан (0 + 5), а не «залип» на 35.
+        $this->assertEqualsWithDelta(5, (float) $fresh1->appeal_addition, 0.001);
+        $this->assertEqualsWithDelta(5, (float) $fresh1->final_score, 0.001);
+        // Участие не удалено.
+        $this->assertDatabaseHas('human_olympiad', ['id' => $p1->id]);
+
+        // Второй участник не выбирался — балл остался.
+        $this->assertEqualsWithDelta(20, (float) $p2->fresh()->primary_score, 0.001);
+    }
+
+    public function test_clear_scores_resets_final_score_to_null_when_no_appeal(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $p = $this->participant($school, $olympiad);
+        $p->update(['primary_score' => 30]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'selected', 'ids' => [$p->id]])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $p->fresh();
+        $this->assertNull($fresh->primary_score);
+        $this->assertNull($fresh->final_score);
+    }
+
+    public function test_clear_scores_filtered_by_school(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $schoolA] = $this->ateSchool('01');
+        [, $schoolB] = $this->ateSchool('01');
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $a = $this->participant($schoolA, $olympiad);
+        $a->update(['primary_score' => 10]);
+        $b = $this->participant($schoolB, $olympiad);
+        $b->update(['primary_score' => 20]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'filtered', 'school' => $schoolA->id])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($a->fresh()->primary_score);
+        $this->assertEqualsWithDelta(20, (float) $b->fresh()->primary_score, 0.001);
+    }
+
+    public function test_clear_scores_all_scoped_to_own_ate(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ateA, $schoolA] = $this->ateSchool('01');
+        [$ateB, $schoolB] = $this->ateSchool('02');
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $a = $this->participant($schoolA, $olympiad);
+        $a->update(['primary_score' => 10]);
+        $b = $this->participant($schoolB, $olympiad);
+        $b->update(['primary_score' => 20]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ateA->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'all'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($a->fresh()->primary_score);
+        $this->assertEqualsWithDelta(20, (float) $b->fresh()->primary_score, 0.001);
+    }
+
+    public function test_clear_scores_blocked_when_entry_closed(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->subHour(), $year);
+        $p = $this->participant($school, $olympiad);
+        $p->update(['primary_score' => 30]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'selected', 'ids' => [$p->id]])
+            ->assertSessionHasErrors('primary_score');
+
+        $this->assertEqualsWithDelta(30, (float) $p->fresh()->primary_score, 0.001);
+    }
+
+    public function test_clear_scores_also_clears_question_scores(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Астрономия', 'stage' => 'municipal', 'grades' => '9',
+            'date_held' => '2025-12-01', 'status' => 'grading', 'results_deadline' => now()->addDay(), 'question_count' => 3,
+        ]);
+        $p = $this->participant($school, $olympiad);
+        $p->update(['primary_score' => 23, 'question_scores' => [1 => 10, 2 => 8, 3 => 5]]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.clear-scores', $olympiad), ['mode' => 'selected', 'ids' => [$p->id]])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $p->fresh();
+        $this->assertNull($fresh->primary_score);
+        $this->assertEmpty($fresh->question_scores ?? []);
+    }
 }

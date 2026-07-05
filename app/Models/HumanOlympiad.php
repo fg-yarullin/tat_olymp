@@ -36,10 +36,11 @@ class HumanOlympiad extends Model
     protected static function booted(): void
     {
         // Итоговый балл МЭ = первичный + добавленное по апелляциям (считается автоматически).
+        // Если оба пусты (балл ещё не вводился либо был очищен) — итог тоже пуст, а не «залипает» на старом значении.
         static::saving(function (HumanOlympiad $ho) {
-            if ($ho->primary_score !== null || $ho->appeal_addition !== null) {
-                $ho->final_score = (float) ($ho->primary_score ?? 0) + (float) ($ho->appeal_addition ?? 0);
-            }
+            $ho->final_score = ($ho->primary_score !== null || $ho->appeal_addition !== null)
+                ? (float) ($ho->primary_score ?? 0) + (float) ($ho->appeal_addition ?? 0)
+                : null;
         });
     }
 

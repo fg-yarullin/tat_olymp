@@ -106,6 +106,68 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scoresImport.progress?.done]);
 
+    // Массовая очистка первичных баллов (только балл — участие и школа/классы не трогаем):
+    // чекбоксы по строкам, «выбрать все по фильтру» и полная очистка у всех участников.
+    const [selected, setSelected] = useState(() => new Set());
+    const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+    const [showWipeModal, setShowWipeModal] = useState(false);
+    const [wipeConfirmText, setWipeConfirmText] = useState('');
+    const clearSelection = () => { setSelected(new Set()); setSelectAllFiltered(false); };
+    // Сброс выбора при смене страницы/фильтров — иначе можно случайно очистить не то, что видно на экране.
+    useEffect(() => {
+        clearSelection();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [participants.current_page, filters.q, filters.grade, filters.pgrade, filters.school]);
+
+    const pageIds = participants.data.map((p) => p.id);
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+    const selectedCount = selectAllFiltered ? participants.total : selected.size;
+    const toggleRow = (id) => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+    const toggleAllOnPage = () => {
+        setSelectAllFiltered(false);
+        setSelected((prev) => {
+            if (allOnPageSelected) {
+                const next = new Set(prev);
+                pageIds.forEach((id) => next.delete(id));
+                return next;
+            }
+            return new Set([...prev, ...pageIds]);
+        });
+    };
+    const currentView = () => ({
+        q: filters.q || undefined,
+        grade: filters.grade ?? undefined,
+        pgrade: filters.pgrade ?? undefined,
+        school: filters.school ?? undefined,
+        page: participants.current_page,
+    });
+    const clearScoresSelected = () => {
+        if (selectedCount === 0) return;
+        if (!confirm(`Очистить баллы у выбранных участников (${selectedCount})? Действие необратимо.`)) return;
+        const payload = {
+            ...currentView(),
+            ...(selectAllFiltered ? { mode: 'filtered' } : { mode: 'selected', ids: [...selected] }),
+        };
+        router.post(route('municipal.results.clear-scores', olympiad.id), payload, {
+            preserveScroll: true,
+            onSuccess: clearSelection,
+        });
+    };
+    const wipeScores = () => {
+        if (wipeConfirmText.trim() !== String(participants.total)) return;
+        router.post(route('municipal.results.clear-scores', olympiad.id), { ...currentView(), mode: 'all' }, {
+            preserveScroll: true,
+            onSuccess: () => { setShowWipeModal(false); setWipeConfirmText(''); clearSelection(); },
+        });
+    };
+
     return (
         <AuthenticatedLayout
             header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Результаты МЭ · {olympiad.subject}</h2>}
@@ -210,8 +272,42 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                     )}
                                 </form>
                                 <ColumnsMenu options={colOptions} cols={cols} onToggle={toggleCol} />
+                                {entryOpen && participants.total > 0 && (
+                                    <button onClick={() => setShowWipeModal(true)}
+                                        className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+                                        Очистить все баллы
+                                    </button>
+                                )}
                             </div>
                         </div>
+                        {entryOpen && selectedCount > 0 && (
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-indigo-50 px-6 py-3 text-sm">
+                                <span className="text-indigo-800">
+                                    {selectAllFiltered
+                                        ? `Выбраны все участники по текущему фильтру: ${selectedCount}.`
+                                        : (
+                                            <>
+                                                Выбрано: {selectedCount}.{' '}
+                                                {allOnPageSelected && participants.total > pageIds.length && (
+                                                    <button type="button" onClick={() => setSelectAllFiltered(true)}
+                                                        className="font-medium text-indigo-700 hover:underline">
+                                                        Выбрать все {participants.total} по текущему фильтру
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    <button type="button" onClick={clearSelection} className="text-gray-500 hover:underline">
+                                        Отменить выбор
+                                    </button>
+                                    <button type="button" onClick={clearScoresSelected}
+                                        className="rounded bg-red-600 px-3 py-2 font-medium text-white hover:bg-red-700">
+                                        Очистить баллы у выбранных ({selectedCount})
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         {participants.data.length === 0 ? (
                             <p className="px-6 py-8 text-center text-sm text-gray-400">
                                 {filters.q || filters.grade || filters.pgrade || filters.school ? 'Ничего не найдено по фильтрам.' : 'Состав ещё не сформирован — заполните его на странице «Состав участников».'}
@@ -220,6 +316,12 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                             <table className="min-w-full text-sm">
                                 <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                                     <tr>
+                                        {entryOpen && (
+                                            <th className="px-3 py-3">
+                                                <input type="checkbox" checked={selectAllFiltered || allOnPageSelected}
+                                                    onChange={toggleAllOnPage} />
+                                            </th>
+                                        )}
                                         <th className="px-3 py-3">Ученик</th>
                                         <th className="px-3 py-3">Школа</th>
                                         <th className="px-3 py-3">Кл.</th>
@@ -236,6 +338,12 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                 <tbody className="divide-y divide-gray-100">
                                     {participants.data.map((p) => (
                                         <tr key={p.id} className="hover:bg-gray-50">
+                                            {entryOpen && (
+                                                <td className="px-3 py-2">
+                                                    <input type="checkbox" checked={selectAllFiltered || selected.has(p.id)}
+                                                        onChange={() => toggleRow(p.id)} />
+                                                </td>
+                                            )}
                                             <td className="px-3 py-2 font-medium text-gray-800">{p.fio}</td>
                                             <td className="px-3 py-2 text-gray-500">{p.school ?? '—'}</td>
                                             <td className="px-3 py-2 text-gray-600">{p.real_grade}</td>
@@ -373,6 +481,29 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                         </div>
                     </form>
                 )}
+            </Modal>
+
+            <Modal show={showWipeModal} onClose={() => { setShowWipeModal(false); setWipeConfirmText(''); }} maxWidth="md">
+                <div className="space-y-4 p-6">
+                    <h3 className="font-semibold text-red-700">Очистить все первичные баллы</h3>
+                    <p className="text-sm text-gray-600">
+                        Будут очищены первичные баллы у ВСЕХ участников МЭ по этой олимпиаде (в рамках вашего АТЕ) — {participants.total}.
+                        Сам состав и апелляции не затрагиваются. Действие необратимо и не зависит от текущих фильтров.
+                        Чтобы подтвердить, введите число <b>{participants.total}</b>:
+                    </p>
+                    <input type="text" value={wipeConfirmText} onChange={(e) => setWipeConfirmText(e.target.value)}
+                        placeholder={String(participants.total)}
+                        className="w-full rounded border-gray-300 text-sm" />
+                    <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => { setShowWipeModal(false); setWipeConfirmText(''); }}
+                            className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                        <button type="button" disabled={wipeConfirmText.trim() !== String(participants.total)}
+                            onClick={wipeScores}
+                            className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                            Очистить все баллы ({participants.total})
+                        </button>
+                    </div>
+                </div>
             </Modal>
 
             <Modal show={importOpen} onClose={closeScoresImport} maxWidth="lg">
