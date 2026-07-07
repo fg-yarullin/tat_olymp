@@ -124,6 +124,35 @@ class MunicipalInvitedImportTest extends TestCase
         $this->assertFalse(HumanOlympiad::where('olympiad_id', $mun->id)->where('student_id', $foreign->id)->exists());
     }
 
+    public function test_import_invited_copies_teacher_and_tech_fields_from_school_stage(): void
+    {
+        [$she, $mun, $ate, $school] = $this->scenario();
+        $a = $this->student($school);
+        $work = $this->sheWork($she, $a, 90, 'winner');
+        $work->update([
+            'teacher_name' => 'Иванов И.И.', 'teacher_workplace' => 'Школа №1',
+            'profile' => 'Направление А', 'practice_types' => '1.1 Практика',
+        ]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        // Файл выгрузки ШЭ не содержит колонок учителя/технологии — они должны подтянуться
+        // из исходной записи ШЭ по (ученик, класс), а не из файла.
+        $csv = "Олимпиада;Физика\nКод олимпиады (не изменять);{$mun->id}\n"
+            ."ID;ФИО;Школа;Класс;Класс участия;Балл;Статус;Призёр\n"
+            ."{$a->id};Уч;Школа;9;9;90;победитель;\n";
+        $file = File::createWithContent('priglashennye.csv', $csv);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.import-invited', $mun), ['file' => $file])
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'olympiad_id' => $mun->id, 'student_id' => $a->id,
+            'teacher_name' => 'Иванов И.И.', 'teacher_workplace' => 'Школа №1',
+            'profile' => 'Направление А', 'practice_types' => '1.1 Практика',
+        ]);
+    }
+
     public function test_import_rejected_when_file_from_other_olympiad(): void
     {
         [$she, $mun, $ate, $school] = $this->scenario();

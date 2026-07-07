@@ -69,7 +69,7 @@ class KazanSubjectCoordinatorTest extends TestCase
         $coord->kazanSubjects()->sync([$phys->id]);
 
         $this->actingAs($coord)->get(route('municipal.results.index'))
-            ->assertInertia(fn (AssertableInertia $p) => $p->has('olympiads', 1));
+            ->assertInertia(fn (AssertableInertia $p) => $p->has('olympiads.data', 1));
 
         $this->actingAs($coord)->get(route('municipal.results.show', $physOl))->assertOk();
         $this->actingAs($coord)->get(route('municipal.results.show', $chemOl))->assertForbidden();
@@ -86,7 +86,7 @@ class KazanSubjectCoordinatorTest extends TestCase
         $super = User::factory()->create(['role' => UserRole::SuperCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
 
         $this->actingAs($super)->get(route('municipal.results.index'))
-            ->assertInertia(fn (AssertableInertia $p) => $p->has('olympiads', 2));
+            ->assertInertia(fn (AssertableInertia $p) => $p->has('olympiads.data', 2));
         $this->actingAs($super)->get(route('municipal.results.show', $chemOl))->assertOk();
     }
 

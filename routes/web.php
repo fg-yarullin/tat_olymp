@@ -263,6 +263,10 @@ Route::middleware(['auth', 'user.active', 'role:municipal_coordinator,kazan_subj
         Route::post('/results/{olympiad}/import-scores', [MunicipalResultController::class, 'importScores'])->name('results.import-scores');
         Route::post('/results/import-scores/{bulkImport}/chunk', [MunicipalResultController::class, 'importScoresChunk'])->name('results.import-scores.chunk');
         Route::get('/results/import-scores/{bulkImport}/errors.csv', [MunicipalResultController::class, 'importScoresErrors'])->name('results.import-scores.errors');
+        Route::get('/results/{olympiad}/appeal-template.xlsx', [MunicipalResultController::class, 'appealTemplateXlsx'])->name('results.appeal-template');
+        Route::post('/results/{olympiad}/import-appeals', [MunicipalResultController::class, 'importAppeals'])->name('results.import-appeals');
+        Route::post('/results/import-appeals/{bulkImport}/chunk', [MunicipalResultController::class, 'importAppealsChunk'])->name('results.import-appeals.chunk');
+        Route::get('/results/import-appeals/{bulkImport}/errors.csv', [MunicipalResultController::class, 'importAppealsErrors'])->name('results.import-appeals.errors');
         Route::post('/results/{olympiad}/compose', [MunicipalResultController::class, 'composeFromStages'])->name('results.compose');
         Route::post('/results/{olympiad}/compose-top-n', [MunicipalResultController::class, 'composeTopN'])->name('results.compose-top-n');
         Route::post('/results/{olympiad}/compose-top-n-school', [MunicipalResultController::class, 'composeTopNPerSchool'])->name('results.compose-top-n-school');

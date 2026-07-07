@@ -9,6 +9,7 @@ import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
 const LEVEL_LABELS = { regional: 'Региональный', republican: 'Республиканский' };
+const STATUS_LABELS = { participant: 'Участник', prize_winner: 'Призёр', winner: 'Победитель' };
 const fmt = (n) => (n == null || n === '' ? '—' : String(n).replace('.', ','));
 const fmtDateTime = (iso) =>
     new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -21,6 +22,7 @@ const sumOf = (obj) =>
 export default function MunicipalResultsEntry({ olympiad, participants, filters = {}, grade_options = [], pgrade_options = [], school_options = [] }) {
     const entryOpen = olympiad.entry_open;
     const appealOpen = olympiad.appeal_open;
+    const isTech = olympiad.is_technology;
     const questionCount = olympiad.question_count || 0;
     const questions = Array.from({ length: questionCount }, (_, i) => i + 1);
 
@@ -53,13 +55,17 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
         go({ page: undefined });
     };
 
-    // Первичный балл (единым числом или по заданиям).
+    // Первичный балл (единым числом или по заданиям) + статус — порогов на МЭ нет,
+    // координатор сравнивает баллы внутри нужной группы и проставляет статус сам.
     const [primaryRow, setPrimaryRow] = useState(null);
-    const primaryForm = useForm({ primary_score: '', scores: {} });
+    const primaryForm = useForm({ primary_score: '', scores: {}, result_status: 'participant' });
     const openPrimary = (p) => {
         setPrimaryRow(p);
         primaryForm.clearErrors();
-        primaryForm.setData({ primary_score: p.primary_score ?? '', scores: { ...(p.question_scores ?? {}) } });
+        primaryForm.setData({
+            primary_score: p.primary_score ?? '', scores: { ...(p.question_scores ?? {}) },
+            result_status: p.result_status ?? 'participant',
+        });
     };
     const submitPrimary = (e) => {
         e.preventDefault();
@@ -67,13 +73,16 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
     };
     const primaryMax = primaryRow ? olympiad.max_scores?.[primaryRow.participation_grade] : undefined;
 
-    // Добавочный балл по апелляции (единым числом или по заданиям).
+    // Добавочный балл по апелляции (единым числом или по заданиям) + статус.
     const [appealRow, setAppealRow] = useState(null);
-    const appealForm = useForm({ appeal_addition: '', appeals: {} });
+    const appealForm = useForm({ appeal_addition: '', appeals: {}, result_status: 'participant' });
     const openAppeal = (p) => {
         setAppealRow(p);
         appealForm.clearErrors();
-        appealForm.setData({ appeal_addition: p.appeal_addition ?? '', appeals: { ...(p.question_appeals ?? {}) } });
+        appealForm.setData({
+            appeal_addition: p.appeal_addition ?? '', appeals: { ...(p.question_appeals ?? {}) },
+            result_status: p.result_status ?? 'participant',
+        });
     };
     const submitAppeal = (e) => {
         e.preventDefault();
@@ -105,6 +114,30 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scoresImport.progress?.done]);
+
+    // Массовая загрузка решений по апелляциям из XLSX (добавка + статус, по частям, с прогресс-баром).
+    const [importAppealsOpen, setImportAppealsOpen] = useState(false);
+    const [importAppealsFile, setImportAppealsFile] = useState(null);
+    const appealsImport = useChunkedImport({
+        startUrl: route('municipal.results.import-appeals', olympiad.id),
+        chunkUrl: (id) => route('municipal.results.import-appeals.chunk', id),
+        errorsUrl: (id) => route('municipal.results.import-appeals.errors', id),
+    });
+    const submitAppealsImport = (e) => {
+        e.preventDefault();
+        appealsImport.run(importAppealsFile);
+    };
+    const closeAppealsImport = () => {
+        setImportAppealsOpen(false);
+        appealsImport.reset();
+        setImportAppealsFile(null);
+    };
+    useEffect(() => {
+        if (appealsImport.progress?.done) {
+            router.reload({ only: ['participants'] });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [appealsImport.progress?.done]);
 
     // Массовая очистка первичных баллов (только балл — участие и школа/классы не трогаем):
     // чекбоксы по строкам, «выбрать все по фильтру» и полная очистка у всех участников.
@@ -190,6 +223,18 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                     <button onClick={() => { scoresImport.reset(); setImportFile(null); setImportOpen(true); }}
                                         className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
                                         Массовый ввод баллов
+                                    </button>
+                                </>
+                            )}
+                            {questionCount === 0 && appealOpen && participants.total > 0 && (
+                                <>
+                                    <a href={route('municipal.results.appeal-template', olympiad.id)}
+                                        className="rounded border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50">
+                                        ↓ Шаблон апелляций (XLSX)
+                                    </a>
+                                    <button onClick={() => { appealsImport.reset(); setImportAppealsFile(null); setImportAppealsOpen(true); }}
+                                        className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">
+                                        Массовая загрузка апелляций
                                     </button>
                                 </>
                             )}
@@ -326,13 +371,16 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                         <th className="px-3 py-3">Школа</th>
                                         <th className="px-3 py-3">Кл.</th>
                                         <th className="px-3 py-3">Кл. уч.</th>
+                                        {isTech && <th className="px-3 py-3">Профиль/Направление</th>}
+                                        {isTech && <th className="px-3 py-3">Вид практики</th>}
                                         <th className="px-3 py-3">Первичный</th>
                                         <th className="px-3 py-3">Макс.</th>
                                         {showQ && questions.map((n) => <th key={`qh${n}`} className="px-2 py-3 text-center">В{n}</th>)}
                                         <th className="px-3 py-3">Апелляция</th>
                                         {showA && questions.map((n) => <th key={`ah${n}`} className="px-2 py-3 text-center text-amber-700">+В{n}</th>)}
                                         <th className="px-3 py-3">Итог</th>
-                                        {questionCount > 0 && (entryOpen || appealOpen) && <th className="px-3 py-3"></th>}
+                                        <th className="px-3 py-3">Статус</th>
+                                        {(entryOpen || appealOpen) && <th className="px-3 py-3"></th>}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -348,6 +396,8 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                             <td className="px-3 py-2 text-gray-500">{p.school ?? '—'}</td>
                                             <td className="px-3 py-2 text-gray-600">{p.real_grade}</td>
                                             <td className="px-3 py-2 text-gray-600">{p.participation_grade}</td>
+                                            {isTech && <td className="px-3 py-2 text-gray-500">{p.profile ?? '—'}</td>}
+                                            {isTech && <td className="px-3 py-2 text-gray-500">{p.practice_types ?? '—'}</td>}
                                             <td className="px-3 py-2 font-medium">
                                                 {questionCount > 0
                                                     ? fmt(p.primary_score)
@@ -369,13 +419,14 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                                 return <td key={`a${p.id}-${n}`} className="px-2 py-2 text-center text-amber-700">{v != null && v !== '' ? `+${fmt(v)}` : '—'}</td>;
                                             })}
                                             <td className="px-3 py-2 font-medium text-gray-700">{fmt(p.final_score)}</td>
-                                            {questionCount > 0 && (entryOpen || appealOpen) && (
+                                            <td className="px-3 py-2 text-gray-600">{STATUS_LABELS[p.result_status] ?? p.result_status}</td>
+                                            {(entryOpen || appealOpen) && (
                                                 <td className="px-3 py-2 whitespace-nowrap text-right">
                                                     {entryOpen && (
-                                                        <button onClick={() => openPrimary(p)} className="mr-3 text-indigo-600 hover:underline">Балл</button>
+                                                        <button onClick={() => openPrimary(p)} className="mr-3 text-indigo-600 hover:underline">Балл/статус</button>
                                                     )}
                                                     {appealOpen && (
-                                                        <button onClick={() => openAppeal(p)} className="text-amber-600 hover:underline">Апелляция</button>
+                                                        <button onClick={() => openAppeal(p)} className="text-amber-600 hover:underline">Апелляция/статус</button>
                                                     )}
                                                 </td>
                                             )}
@@ -432,6 +483,19 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                 {primaryForm.errors.primary_score && <p className="text-xs text-red-600">{primaryForm.errors.primary_score}</p>}
                             </div>
                         )}
+                        <div>
+                            <label className="block text-xs text-gray-500">Статус</label>
+                            <select value={primaryForm.data.result_status}
+                                onChange={(e) => primaryForm.setData('result_status', e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm">
+                                <option value="participant">Участник</option>
+                                <option value="prize_winner">Призёр</option>
+                                <option value="winner">Победитель</option>
+                            </select>
+                            <p className="mt-1 text-xs text-gray-400">
+                                Порогов на МЭ нет — сравните баллы внутри нужной группы (например, по профилю/виду практики) и укажите статус сами.
+                            </p>
+                        </div>
                         <div className="flex justify-end gap-2">
                             <button type="button" onClick={() => setPrimaryRow(null)} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
                             <button type="submit" disabled={primaryForm.processing}
@@ -474,6 +538,19 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                                 {appealForm.errors.appeal_addition && <p className="text-xs text-red-600">{appealForm.errors.appeal_addition}</p>}
                             </div>
                         )}
+                        <div>
+                            <label className="block text-xs text-gray-500">Статус</label>
+                            <select value={appealForm.data.result_status}
+                                onChange={(e) => appealForm.setData('result_status', e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm">
+                                <option value="participant">Участник</option>
+                                <option value="prize_winner">Призёр</option>
+                                <option value="winner">Победитель</option>
+                            </select>
+                            <p className="mt-1 text-xs text-gray-400">
+                                Указывается после рассмотрения апелляции — сравните итоговые баллы внутри нужной группы.
+                            </p>
+                        </div>
                         <div className="flex justify-end gap-2">
                             <button type="button" onClick={() => setAppealRow(null)} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
                             <button type="submit" disabled={appealForm.processing}
@@ -510,8 +587,9 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                 <form onSubmit={submitScoresImport} className="space-y-4 p-6">
                     <h3 className="font-semibold text-gray-800">Массовый ввод первичных баллов</h3>
                     <p className="text-xs text-gray-500">
-                        Скачайте шаблон (XLSX), заполните колонку <b>Балл</b> и загрузите этот же файл. Балл
-                        сопоставляется по ID участия из шаблона; код олимпиады в шапке сверяется.
+                        Скачайте шаблон (XLSX), заполните колонку <b>Балл</b> (и, если решили статус — <b>Статус</b>:
+                        участник/призер/победитель) и загрузите этот же файл. Строки сопоставляются по ID участия из шаблона;
+                        код олимпиады в шапке сверяется.
                     </p>
                     {!scoresImport.progress && (
                         <>
@@ -529,6 +607,33 @@ export default function MunicipalResultsEntry({ olympiad, participants, filters 
                     )}
                     <ImportProgress progress={scoresImport.progress} error={scoresImport.error} errorsHref={scoresImport.errorsHref}
                         onReset={() => { scoresImport.reset(); setImportFile(null); }} />
+                </form>
+            </Modal>
+
+            <Modal show={importAppealsOpen} onClose={closeAppealsImport} maxWidth="lg">
+                <form onSubmit={submitAppealsImport} className="space-y-4 p-6">
+                    <h3 className="font-semibold text-gray-800">Массовая загрузка решений по апелляциям</h3>
+                    <p className="text-xs text-gray-500">
+                        Скачайте шаблон (XLSX), заполните колонку <b>Апелляция</b> (добавочный балл) и/или <b>Статус</b>
+                        (участник/призер/победитель) и загрузите этот же файл. Строки сопоставляются по ID участия из
+                        шаблона; код олимпиады в шапке сверяется.
+                    </p>
+                    {!appealsImport.progress && (
+                        <>
+                            <div>
+                                <input type="file" accept=".xlsx,.ods,.csv,.txt"
+                                    onChange={(e) => setImportAppealsFile(e.target.files[0] ?? null)}
+                                    className="block w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm" />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button type="button" onClick={closeAppealsImport} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
+                                <button type="submit" disabled={appealsImport.running || !importAppealsFile}
+                                    className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">Загрузить</button>
+                            </div>
+                        </>
+                    )}
+                    <ImportProgress progress={appealsImport.progress} error={appealsImport.error} errorsHref={appealsImport.errorsHref}
+                        onReset={() => { appealsImport.reset(); setImportAppealsFile(null); }} />
                 </form>
             </Modal>
         </AuthenticatedLayout>

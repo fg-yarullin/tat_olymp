@@ -66,6 +66,12 @@ class MunicipalScoreImportTest extends TestCase
         return new UploadedFile($path, 'r.csv', 'text/csv', null, true);
     }
 
+    /** Строка данных импорта баллов МЭ: ID + пустые ФИО/Школа/Класс/Кл.уч/Макс + Балл (+ Статус). */
+    private function scoreRow(int $id, string $score, string $status = ''): string
+    {
+        return implode(';', [$id, '', '', '', '', '', $score, $status]);
+    }
+
     /** Запускает импорт баллов МЭ (по частям) и доводит его до завершения; возвращает итог. */
     private function runImport(User $coordinator, Olympiad $olympiad, UploadedFile $file): array
     {
@@ -109,8 +115,8 @@ class MunicipalScoreImportTest extends TestCase
 
         $csv = $this->csv([
             'ID;Балл',
-            "{$p1->id};45",
-            "{$p2->id};60", // выше максимума (50) — пропуск
+            $this->scoreRow($p1->id, '45'),
+            $this->scoreRow($p2->id, '60'), // выше максимума (50) — пропуск
         ]);
 
         $prog = $this->runImport($coordinator, $olympiad, $csv);
@@ -131,7 +137,7 @@ class MunicipalScoreImportTest extends TestCase
         $foreign = $this->participant($schoolB, $olympiad);
         $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ateA->id, 'is_active' => true]);
 
-        $csv = $this->csv(['ID;Балл', "{$mine->id};30", "{$foreign->id};30"]);
+        $csv = $this->csv(['ID;Балл', $this->scoreRow($mine->id, '30'), $this->scoreRow($foreign->id, '30')]);
 
         $prog = $this->runImport($coordinator, $olympiad, $csv);
         $this->assertSame(1, $prog['updated']);
@@ -169,7 +175,7 @@ class MunicipalScoreImportTest extends TestCase
         $super = User::factory()->create(['role' => UserRole::SuperCoordinator, 'ate_id' => $d1->id, 'is_active' => true]);
         $super->coordinatorAtes()->sync([$d1->id, $d2->id]);
 
-        $csv = $this->csv(['ID;Балл', "{$p1->id};20", "{$p2->id};25"]);
+        $csv = $this->csv(['ID;Балл', $this->scoreRow($p1->id, '20'), $this->scoreRow($p2->id, '25')]);
         $prog = $this->runImport($super, $olympiad, $csv);
 
         $this->assertSame(2, $prog['updated']);
@@ -189,7 +195,7 @@ class MunicipalScoreImportTest extends TestCase
         for ($k = 0; $k < 200; $k++) {
             $p = $this->participant($school, $olympiad);
             $ids[] = $p->id;
-            $lines[] = "{$p->id};30";
+            $lines[] = $this->scoreRow($p->id, '30');
         }
         $csv = $this->csv($lines);
 

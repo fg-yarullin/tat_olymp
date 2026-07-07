@@ -10,11 +10,13 @@ const BASIS_LABELS = {
     prev_municipal: 'Прошлогодний призёр МЭ',
     petition: 'По ходатайству',
 };
+const BLANK_ADD = { student_id: '', participation_grade: '', teacher_name: '', teacher_workplace: '', profile: '', practice_types: '' };
 const BLANK_EXT = {
     school_id: '', fio: '', birth_date: '', gender: '', snils: '', real_grade: '', origin_region: '', participation_grade: '',
+    teacher_name: '', teacher_workplace: '', profile: '', practice_types: '',
 };
 
-export default function MunicipalResultsShow({ olympiad, participants, filters = {}, grade_options = [], pgrade_options = [], school_options = [], invitation_thresholds = {}, she_max_scores = {}, she_total_by_grade = {}, she_qualifying_scores_by_grade = {}, she_counts_by_school_grade = {}, students, schools = [] }) {
+export default function MunicipalResultsShow({ olympiad, participants, filters = {}, grade_options = [], pgrade_options = [], school_options = [], invitation_thresholds = {}, she_max_scores = {}, she_total_by_grade = {}, she_qualifying_scores_by_grade = {}, she_counts_by_school_grade = {}, students, schools = [], is_technology = false, tech_profiles = [], teachers = [] }) {
     const { errors, flash = {} } = usePage().props;
     const open = olympiad.compose_open;
 
@@ -58,7 +60,7 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
     };
 
     const [showModal, setShowModal] = useState(false);
-    const form = useForm({ student_id: '', participation_grade: '' });
+    const form = useForm({ ...BLANK_ADD });
 
     // Внешний участник (из другого региона) — отдельная модалка.
     const [showExt, setShowExt] = useState(false);
@@ -84,8 +86,28 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
         return olympiad.grades.filter((g) => g >= selectedStudent.real_grade);
     }, [selectedStudent, olympiad.grades]);
 
+    // Технология: направление/вид практики — те же справочники, что и на школьном этапе.
+    const teacherByName = useMemo(() => Object.fromEntries(teachers.map((t) => [t.name, t.workplace ?? ''])), [teachers]);
+    const workplaceOptions = useMemo(() => [...new Set(teachers.map((t) => t.workplace).filter(Boolean))], [teachers]);
+    const onAddTeacherName = (val) => {
+        const next = { ...form.data, teacher_name: val };
+        if (Object.prototype.hasOwnProperty.call(teacherByName, val)) {
+            next.teacher_workplace = teacherByName[val];
+        }
+        form.setData(next);
+    };
+    const onExtTeacherName = (val) => {
+        const next = { ...extForm.data, teacher_name: val };
+        if (Object.prototype.hasOwnProperty.call(teacherByName, val)) {
+            next.teacher_workplace = teacherByName[val];
+        }
+        extForm.setData(next);
+    };
+    const addTechProfile = useMemo(() => tech_profiles.find((p) => p.name === form.data.profile), [tech_profiles, form.data.profile]);
+    const extTechProfile = useMemo(() => tech_profiles.find((p) => p.name === extForm.data.profile), [tech_profiles, extForm.data.profile]);
+
     const openAdd = () => {
-        form.setData({ student_id: '', participation_grade: '' });
+        form.setData({ ...BLANK_ADD });
         form.clearErrors();
         setShowModal(true);
     };
@@ -618,6 +640,46 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                             </select>
                             {form.errors.participation_grade && <p className="text-xs text-red-600">{form.errors.participation_grade}</p>}
                         </div>
+                        <div>
+                            <label className="block text-xs text-gray-500">Учитель (тренер)</label>
+                            <input list="add-teacher-names" value={form.data.teacher_name}
+                                onChange={(e) => onAddTeacherName(e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm" />
+                            <datalist id="add-teacher-names">
+                                {teachers.map((t) => <option key={t.name} value={t.name} />)}
+                            </datalist>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-gray-500">Место работы учителя</label>
+                            <input list="add-teacher-workplaces" value={form.data.teacher_workplace}
+                                onChange={(e) => form.setData('teacher_workplace', e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm" />
+                            <datalist id="add-teacher-workplaces">
+                                {workplaceOptions.map((w) => <option key={w} value={w} />)}
+                            </datalist>
+                        </div>
+                        {is_technology && (
+                            <>
+                                <div>
+                                    <label className="block text-xs text-gray-500">Профиль/Направление</label>
+                                    <select value={form.data.profile}
+                                        onChange={(e) => form.setData({ ...form.data, profile: e.target.value, practice_types: '' })}
+                                        className="w-full rounded border-gray-300 text-sm">
+                                        <option value="">— выберите —</option>
+                                        {tech_profiles.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-500">Вид практики</label>
+                                    <select value={form.data.practice_types} disabled={!addTechProfile}
+                                        onChange={(e) => form.setData('practice_types', e.target.value)}
+                                        className="w-full rounded border-gray-300 text-sm disabled:bg-gray-100">
+                                        <option value="">— выберите —</option>
+                                        {addTechProfile?.practices.map((pr) => <option key={pr.id} value={pr.label}>{pr.label}</option>)}
+                                    </select>
+                                </div>
+                            </>
+                        )}
                     </div>
                     <div className="flex justify-end gap-2">
                         <button type="button" onClick={() => setShowModal(false)} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>
@@ -857,6 +919,46 @@ export default function MunicipalResultsShow({ olympiad, participants, filters =
                             </select>
                             {extForm.errors.participation_grade && <p className="text-xs text-red-600">{extForm.errors.participation_grade}</p>}
                         </div>
+                        <div>
+                            <label className="block text-xs text-gray-500">Учитель (тренер)</label>
+                            <input list="ext-teacher-names" value={extForm.data.teacher_name}
+                                onChange={(e) => onExtTeacherName(e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm" />
+                            <datalist id="ext-teacher-names">
+                                {teachers.map((t) => <option key={t.name} value={t.name} />)}
+                            </datalist>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-gray-500">Место работы учителя</label>
+                            <input list="ext-teacher-workplaces" value={extForm.data.teacher_workplace}
+                                onChange={(e) => extForm.setData('teacher_workplace', e.target.value)}
+                                className="w-full rounded border-gray-300 text-sm" />
+                            <datalist id="ext-teacher-workplaces">
+                                {workplaceOptions.map((w) => <option key={w} value={w} />)}
+                            </datalist>
+                        </div>
+                        {is_technology && (
+                            <>
+                                <div>
+                                    <label className="block text-xs text-gray-500">Профиль/Направление</label>
+                                    <select value={extForm.data.profile}
+                                        onChange={(e) => extForm.setData({ ...extForm.data, profile: e.target.value, practice_types: '' })}
+                                        className="w-full rounded border-gray-300 text-sm">
+                                        <option value="">— выберите —</option>
+                                        {tech_profiles.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-500">Вид практики</label>
+                                    <select value={extForm.data.practice_types} disabled={!extTechProfile}
+                                        onChange={(e) => extForm.setData('practice_types', e.target.value)}
+                                        className="w-full rounded border-gray-300 text-sm disabled:bg-gray-100">
+                                        <option value="">— выберите —</option>
+                                        {extTechProfile?.practices.map((pr) => <option key={pr.id} value={pr.label}>{pr.label}</option>)}
+                                    </select>
+                                </div>
+                            </>
+                        )}
                     </div>
                     <div className="flex justify-end gap-2">
                         <button type="button" onClick={() => setShowExt(false)} className="rounded bg-gray-200 px-4 py-2 text-sm">Отмена</button>

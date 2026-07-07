@@ -38,8 +38,20 @@ class ResultController extends Controller
     /** Результаты ШЭ/прошлого МЭ, дающие право участвовать в МЭ. */
     private const QUALIFYING = ['winner', 'prize_winner'];
 
-    /** Колонки шаблона массового ввода первичных баллов МЭ. */
-    private const SCORE_TEMPLATE_HEADER = ['ID', 'ФИО', 'Школа', 'Класс', 'Класс участия', 'Макс. балл', 'Балл'];
+    /** Колонки шаблона массового ввода первичных баллов МЭ (статус координатор определяет сам — порогов на МЭ нет). */
+    private const SCORE_TEMPLATE_HEADER = ['ID', 'ФИО', 'Школа', 'Класс', 'Класс участия', 'Макс. балл', 'Балл', 'Статус'];
+
+    /** Колонки шаблона массового ввода апелляций МЭ. */
+    private const APPEAL_TEMPLATE_HEADER = ['ID', 'ФИО', 'Школа', 'Класс', 'Класс участия', 'Макс. балл', 'Первичный балл', 'Апелляция', 'Итог', 'Статус'];
+
+    /** Текстовый статус из файла -> result_status (совпадает со школьным этапом). */
+    private const STATUS_MAP = [
+        'призер' => 'prize_winner', 'призёр' => 'prize_winner',
+        'победитель' => 'winner', 'участник' => 'participant',
+    ];
+
+    /** result_status -> текст для выгрузки в шаблон. */
+    private const STATUS_RU = ['prize_winner' => 'призер', 'winner' => 'победитель', 'participant' => ''];
 
     public function index(Request $request): Response
     {
@@ -56,8 +68,8 @@ class ResultController extends Controller
             ->withCount(['humanOlympiads as participants_count' => fn ($q) => $q
                 ->whereHas('student.school', fn ($s) => $s->whereIn('ate_id', $ateIds))])
             ->orderByDesc('id')
-            ->get()
-            ->map(fn (Olympiad $o) => [
+            ->paginate(10)->withQueryString()
+            ->through(fn (Olympiad $o) => [
                 'id' => $o->id,
                 'subject' => $o->subject,
                 'level' => $o->level,
@@ -65,7 +77,9 @@ class ResultController extends Controller
                 // Состав открыт, пока открыт первичный ввод (по сроку).
                 'compose_open' => $o->isEntryOpenForAte($ateId, 'primary'),
                 'entry_open' => $o->isEntryOpenForAte($ateId, 'primary'),
+                'entry_deadline' => $o->entryDeadlineForAte($ateId, 'primary')?->toIso8601String(),
                 'appeal_open' => $o->isEntryOpenForAte($ateId, 'appeal'),
+                'appeal_deadline' => $o->entryDeadlineForAte($ateId, 'appeal')?->toIso8601String(),
                 'participants' => $o->participants_count,
             ]);
 
@@ -109,11 +123,14 @@ class ResultController extends Controller
                 'primary_score' => $h->primary_score,
                 'appeal_addition' => $h->appeal_addition,
                 'final_score' => $h->final_score,
+                'result_status' => $h->result_status,
                 'question_scores' => (object) ($h->question_scores ?? []),
                 'question_appeals' => (object) ($h->question_appeals ?? []),
                 'inclusion_basis' => $h->inclusion_basis,
                 'from_other_region' => (bool) $h->student?->from_other_region,
                 'origin_region' => $h->student?->origin_region,
+                'profile' => $h->profile,
+                'practice_types' => $h->practice_types,
             ]);
 
         return [
@@ -300,6 +317,8 @@ class ResultController extends Controller
             $sheCountsBySchoolGrade[$sc] = (object) $byGrade;
         }
 
+        $isTech = $olympiad->isTechnologySubject();
+
         return Inertia::render('Municipal/Results/Show', array_merge(
             $this->participantList($request, $olympiad, $ateIds),
             [
@@ -320,6 +339,9 @@ class ResultController extends Controller
                 'she_counts_by_school_grade' => (object) $sheCountsBySchoolGrade,
                 'students' => $students,
                 'schools' => School::whereIn('ate_id', $ateIds)->orderBy('short_name')->get(['id', 'short_name']),
+                'is_technology' => $isTech,
+                'tech_profiles' => $isTech ? $this->techProfiles() : [],
+                'teachers' => $this->teacherDirectory($ateIds),
             ],
         ));
     }
@@ -349,16 +371,11 @@ class ResultController extends Controller
                     'appeal_deadline' => $olympiad->entryDeadlineForAte($ateId, 'appeal')?->toIso8601String(),
                     'max_scores' => (object) $olympiad->maxScoresMap(),
                     'has_protocol_template' => ProtocolTemplate::forStageSubject('municipal', $olympiad->subject_id) !== null,
+                    'is_technology' => $olympiad->isTechnologySubject(),
                 ],
             ],
         ));
     }
-
-    private const BASIS_RU = [
-        'school_stage' => 'Призёр/победитель ШЭ',
-        'prev_municipal' => 'Прошлогодний призёр МЭ',
-        'petition' => 'По ходатайству',
-    ];
 
     /** Выгрузка списка приглашённых МЭ этого АТЕ в XLSX. */
     public function invitedXlsx(Request $request, Olympiad $olympiad): StreamedResponse
@@ -372,15 +389,20 @@ class ResultController extends Controller
             ->join('students', 'students.id', '=', 'human_olympiad.student_id')
             ->join('schools', 'schools.id', '=', 'students.school_id')
             ->whereIn('schools.ate_id', $ateIds)
-            ->with(['student:id,fio,birth_date,real_grade,school_id,from_other_region,origin_region', 'student.school:id,short_name'])
+            ->with(['student:id,fio,birth_date,real_grade,school_id', 'student.school:id,short_name'])
             ->select('human_olympiad.*')
             ->orderBy('human_olympiad.participation_grade')->orderBy('students.fio')
             ->get();
 
+        $isTech = $olympiad->isTechnologySubject();
+
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Приглашённые МЭ');
-        $header = ['№', 'ФИО', 'Дата рождения', 'Школа', 'Класс', 'Класс участия', 'Основание', 'Из другого региона'];
+        $header = ['№', 'ФИО', 'Дата рождения', 'Школа', 'Класс', 'Класс участия'];
+        if ($isTech) {
+            $header = [...$header, 'Профиль/Направление', 'Вид практики'];
+        }
         foreach ($header as $i => $title) {
             $sheet->setCellValue(Coordinate::stringFromColumnIndex($i + 1).'1', $title);
         }
@@ -388,7 +410,6 @@ class ResultController extends Controller
         $row = 2;
         foreach ($participants as $n => $h) {
             $s = $h->student;
-            $external = $s?->from_other_region ? ($s->origin_region ?: 'да') : '';
             $values = [
                 $n + 1,
                 $s?->fio,
@@ -396,9 +417,10 @@ class ResultController extends Controller
                 $s?->school?->short_name,
                 $s?->real_grade,
                 $h->participation_grade,
-                self::BASIS_RU[$h->inclusion_basis] ?? '',
-                $external,
             ];
+            if ($isTech) {
+                $values = [...$values, $h->profile, $h->practice_types];
+            }
             foreach ($values as $i => $value) {
                 $sheet->setCellValue(Coordinate::stringFromColumnIndex($i + 1).$row, $value);
             }
@@ -430,6 +452,50 @@ class ResultController extends Controller
         }
 
         return $map;
+    }
+
+    /**
+     * Справочник тренеров своего АТЕ (по всем школам): для каждого ФИО — последнее введённое
+     * место работы (автоподсказки + автозаполнение при ручном добавлении участника МЭ).
+     */
+    private function teacherDirectory(array $ateIds): array
+    {
+        $rows = HumanOlympiad::query()
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds)
+            ->whereNotNull('human_olympiad.teacher_name')
+            ->where('human_olympiad.teacher_name', '!=', '')
+            ->orderByDesc('human_olympiad.id')
+            ->get(['human_olympiad.teacher_name', 'human_olympiad.teacher_workplace']);
+
+        $byName = [];
+        foreach ($rows as $r) {
+            $name = trim($r->teacher_name);
+            if ($name === '' || array_key_exists($name, $byName)) {
+                continue; // первая запись = самая свежая (orderByDesc id)
+            }
+            $byName[$name] = $r->teacher_workplace;
+        }
+
+        return collect($byName)->map(fn ($wp, $name) => ['name' => $name, 'workplace' => $wp])->values()->all();
+    }
+
+    /** Активные направления технологии с активными видами практик (для выпадающих списков). */
+    private function techProfiles(): array
+    {
+        return \App\Models\TechProfile::query()
+            ->where('is_active', true)
+            ->with(['practices' => fn ($q) => $q->where('is_active', true)->ordered()])
+            ->ordered()->get()
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'name' => $p->name,
+                'practices' => $p->practices->map(fn ($pr) => [
+                    'id' => $pr->id,
+                    'label' => $pr->label(),
+                ]),
+            ])->all();
     }
 
     /**
@@ -473,15 +539,18 @@ class ResultController extends Controller
             ->get(['student_id', 'participation_grade'])
             ->map(fn ($h) => $h->student_id.':'.$h->participation_grade)->flip();
 
+        // Поля учителя/технологии переносятся с исходной записи (ШЭ/прошлый МЭ) — те же на МЭ.
+        $carryOver = ['teacher_name', 'teacher_workplace', 'profile', 'practice_types'];
+
         $added = 0;
-        $add = function (int $studentId, int $grade, string $basis) use (&$existing, &$added, $olympiad) {
+        $add = function (int $studentId, int $grade, string $basis, array $extra = []) use (&$existing, &$added, $olympiad) {
             if (! in_array($grade, $olympiad->gradesArray(), true) || $existing->has($studentId.':'.$grade)) {
                 return;
             }
-            HumanOlympiad::create([
+            HumanOlympiad::create(array_merge([
                 'student_id' => $studentId, 'olympiad_id' => $olympiad->id,
                 'participation_grade' => $grade, 'result_status' => 'participant', 'inclusion_basis' => $basis,
-            ]);
+            ], $extra));
             $existing->put($studentId.':'.$grade, true);
             $added++;
         };
@@ -490,30 +559,30 @@ class ResultController extends Controller
         $flagged = HumanOlympiad::whereIn('olympiad_id', $sheIds)
             ->where('prev_municipal_winner', true)
             ->whereHas('student.school', fn ($s) => $s->whereIn('ate_id', $ateIds))
-            ->get(['student_id', 'participation_grade']);
+            ->get(['student_id', 'participation_grade', ...$carryOver]);
         foreach ($flagged as $c) {
-            $add($c->student_id, (int) $c->participation_grade, 'prev_municipal');
+            $add($c->student_id, (int) $c->participation_grade, 'prev_municipal', $c->only($carryOver));
         }
         // 1б. Реальные записи прошлогоднего МЭ (победители/призёры).
         $prev = HumanOlympiad::whereIn('olympiad_id', $prevMunIds)
             ->whereIn('result_status', self::QUALIFYING)
             ->whereHas('student.school', fn ($s) => $s->whereIn('ate_id', $ateIds))
-            ->get(['student_id', 'participation_grade']);
+            ->get(['student_id', 'participation_grade', ...$carryOver]);
         foreach ($prev as $c) {
-            $add($c->student_id, (int) $c->participation_grade, 'prev_municipal');
+            $add($c->student_id, (int) $c->participation_grade, 'prev_municipal', $c->only($carryOver));
         }
         // 2. Победители/призёры ШЭ текущего года с баллом ≥ порога (если порог задан для класса).
         $sheWinners = HumanOlympiad::whereIn('olympiad_id', $sheIds)
             ->whereIn('result_status', self::QUALIFYING)
             ->whereHas('student.school', fn ($s) => $s->whereIn('ate_id', $ateIds))
-            ->get(['student_id', 'participation_grade', 'score']);
+            ->get(['student_id', 'participation_grade', 'score', ...$carryOver]);
         foreach ($sheWinners as $c) {
             $grade = (int) $c->participation_grade;
             $min = $thresholds[$grade] ?? null;
             if ($min !== null && ($c->score === null || (float) $c->score < $min)) {
                 continue; // ниже порога — не приглашаем
             }
-            $add($c->student_id, $grade, 'school_stage');
+            $add($c->student_id, $grade, 'school_stage', $c->only($carryOver));
         }
 
         return back()->with('success', $added > 0
@@ -562,7 +631,7 @@ class ResultController extends Controller
                 ->orderByDesc('human_olympiad.score')
                 ->orderBy('human_olympiad.id')
                 ->limit($n)
-                ->get(['student_id', 'participation_grade']);
+                ->get(['student_id', 'participation_grade', 'teacher_name', 'teacher_workplace', 'profile', 'practice_types']);
 
             foreach ($top as $c) {
                 $key = $c->student_id.':'.$c->participation_grade;
@@ -573,6 +642,8 @@ class ResultController extends Controller
                     'student_id' => $c->student_id, 'olympiad_id' => $olympiad->id,
                     'participation_grade' => $c->participation_grade, 'result_status' => 'participant',
                     'inclusion_basis' => 'school_stage',
+                    'teacher_name' => $c->teacher_name, 'teacher_workplace' => $c->teacher_workplace,
+                    'profile' => $c->profile, 'practice_types' => $c->practice_types,
                 ]);
                 $existing->put($key, true);
                 $added++;
@@ -625,7 +696,11 @@ class ResultController extends Controller
                 ->join('schools', 'schools.id', '=', 'students.school_id')
                 ->whereIn('schools.ate_id', $ateIds)
                 ->orderBy('schools.id')->orderByDesc('human_olympiad.score')->orderBy('human_olympiad.id')
-                ->select('human_olympiad.student_id', 'human_olympiad.participation_grade', 'students.school_id')
+                ->select(
+                    'human_olympiad.student_id', 'human_olympiad.participation_grade', 'students.school_id',
+                    'human_olympiad.teacher_name', 'human_olympiad.teacher_workplace',
+                    'human_olympiad.profile', 'human_olympiad.practice_types',
+                )
                 ->get();
 
             $perSchool = [];
@@ -644,6 +719,8 @@ class ResultController extends Controller
                     'student_id' => $r->student_id, 'olympiad_id' => $olympiad->id,
                     'participation_grade' => $r->participation_grade, 'result_status' => 'participant',
                     'inclusion_basis' => 'school_stage',
+                    'teacher_name' => $r->teacher_name, 'teacher_workplace' => $r->teacher_workplace,
+                    'profile' => $r->profile, 'practice_types' => $r->practice_types,
                 ]);
                 $existing->put($key, true);
                 $added++;
@@ -810,6 +887,13 @@ class ResultController extends Controller
         $existing = HumanOlympiad::where('olympiad_id', $olympiad->id)->get(['student_id', 'participation_grade'])
             ->map(fn ($h) => $h->student_id.':'.$h->participation_grade)->flip();
 
+        // Учитель/технология в файле выгрузки ШЭ не указаны — подтягиваем их с исходной записи ШЭ по (ученик, класс).
+        $sheByKey = $this->schoolStageBaseQuery($olympiad, $ateIds)
+            ->select('human_olympiad.student_id', 'human_olympiad.participation_grade', 'human_olympiad.teacher_name',
+                'human_olympiad.teacher_workplace', 'human_olympiad.profile', 'human_olympiad.practice_types')
+            ->get()
+            ->keyBy(fn ($h) => $h->student_id.':'.$h->participation_grade);
+
         $added = 0;
         $skipped = [];
         $seen = [];
@@ -843,9 +927,12 @@ class ResultController extends Controller
                 continue;
             }
 
+            $she = $sheByKey->get($key);
             HumanOlympiad::create([
                 'student_id' => $sid, 'olympiad_id' => $olympiad->id,
                 'participation_grade' => $grade, 'result_status' => 'participant', 'inclusion_basis' => 'school_stage',
+                'teacher_name' => $she?->teacher_name, 'teacher_workplace' => $she?->teacher_workplace,
+                'profile' => $she?->profile, 'practice_types' => $she?->practice_types,
             ]);
             $existing->put($key, true);
             $added++;
@@ -871,6 +958,7 @@ class ResultController extends Controller
             return back()->withErrors(['student_id' => 'Формирование состава по этой олимпиаде закрыто.']);
         }
 
+        $isTech = $olympiad->isTechnologySubject();
         $validated = $request->validate([
             'student_id' => [
                 'required',
@@ -880,6 +968,10 @@ class ResultController extends Controller
                 ),
             ],
             'participation_grade' => ['required', 'integer', Rule::in($olympiad->gradesArray())],
+            'teacher_name' => ['nullable', 'string', 'max:255'],
+            'teacher_workplace' => ['nullable', 'string', 'max:255'],
+            'profile' => ['nullable', 'string', 'max:255'],
+            'practice_types' => ['nullable', 'string', 'max:255'],
         ]);
 
         $student = Student::find($validated['student_id']);
@@ -893,7 +985,13 @@ class ResultController extends Controller
                 'olympiad_id' => $olympiad->id,
                 'participation_grade' => $validated['participation_grade'],
             ],
-            ['result_status' => 'participant', 'inclusion_basis' => 'petition'],
+            [
+                'result_status' => 'participant', 'inclusion_basis' => 'petition',
+                'teacher_name' => $validated['teacher_name'] ?? null,
+                'teacher_workplace' => $validated['teacher_workplace'] ?? null,
+                'profile' => $isTech ? ($validated['profile'] ?? null) : null,
+                'practice_types' => $isTech ? ($validated['practice_types'] ?? null) : null,
+            ],
         );
 
         return back()->with('success', 'Участник добавлен (по ходатайству).');
@@ -910,6 +1008,7 @@ class ResultController extends Controller
             return back()->withErrors(['fio' => 'Формирование состава по этой олимпиаде закрыто.']);
         }
 
+        $isTech = $olympiad->isTechnologySubject();
         $schoolIds = School::whereIn('ate_id', $ateIds)->pluck('id');
         $data = $request->validate([
             'school_id' => ['required', Rule::in($schoolIds->all())],
@@ -920,6 +1019,10 @@ class ResultController extends Controller
             'real_grade' => ['required', 'integer', 'between:1,11'],
             'origin_region' => ['nullable', 'string', 'max:255'],
             'participation_grade' => ['required', 'integer', Rule::in($olympiad->gradesArray())],
+            'teacher_name' => ['nullable', 'string', 'max:255'],
+            'teacher_workplace' => ['nullable', 'string', 'max:255'],
+            'profile' => ['nullable', 'string', 'max:255'],
+            'practice_types' => ['nullable', 'string', 'max:255'],
         ]);
 
         if ($data['participation_grade'] < $data['real_grade']) {
@@ -944,6 +1047,10 @@ class ResultController extends Controller
             'participation_grade' => $data['participation_grade'],
             'result_status' => 'participant',
             'inclusion_basis' => 'petition',
+            'teacher_name' => $data['teacher_name'] ?? null,
+            'teacher_workplace' => $data['teacher_workplace'] ?? null,
+            'profile' => $isTech ? ($data['profile'] ?? null) : null,
+            'practice_types' => $isTech ? ($data['practice_types'] ?? null) : null,
         ]);
 
         return back()->with('success', 'Участник из другого региона добавлен.');
@@ -1001,6 +1108,12 @@ class ResultController extends Controller
     private function maxRu(float $max): string
     {
         return rtrim(rtrim(number_format($max, 2, ',', ''), '0'), ',');
+    }
+
+    /** Число для выгрузки в шаблон — с запятой как разделителем дробной части (рос. стандарт). */
+    private function numRu($v): string
+    {
+        return $v === null ? '' : str_replace('.', ',', (string) $v);
     }
 
     /** Присвоение/изменение шифра участнику МЭ (вручную координатором). */
@@ -1245,7 +1358,11 @@ class ResultController extends Controller
         $row = $headerRow + 1;
         foreach ($participants as $h) {
             $s = $h->student;
-            $values = [$h->id, $s?->fio, $s?->school?->short_name, $s?->real_grade, $h->participation_grade, $olympiad->maxScoreFor((int) $h->participation_grade), $h->primary_score];
+            $values = [
+                $h->id, $s?->fio, $s?->school?->short_name, $s?->real_grade, $h->participation_grade,
+                $this->numRu($olympiad->maxScoreFor((int) $h->participation_grade)), $this->numRu($h->primary_score),
+                self::STATUS_RU[$h->result_status] ?? '',
+            ];
             foreach ($values as $i => $v) {
                 $sheet->setCellValueExplicit(Coordinate::stringFromColumnIndex($i + 1).$row, (string) $v, DataType::TYPE_STRING);
             }
@@ -1334,7 +1451,7 @@ class ResultController extends Controller
         abort_unless($bulkImport->type === 'municipal_primary_scores' && $bulkImport->user_id === $request->user()->id, 403);
     }
 
-    /** Обработка одной строки импорта балла МЭ (по ID участия; балл — последняя колонка). */
+    /** Обработка одной строки импорта балла МЭ (по ID участия; колонки: см. SCORE_TEMPLATE_HEADER). */
     private function applyMunicipalScoreRow(array $row, int $line, Olympiad $olympiad, $works, ImportResult $result): void
     {
         $idRaw = trim((string) ($row[0] ?? ''));
@@ -1342,7 +1459,8 @@ class ResultController extends Controller
             return; // служебные/пустые строки без ID
         }
         $participationId = (int) $idRaw;
-        $rawScore = trim((string) ($row[count($row) - 1] ?? ''));
+        $rawScore = trim((string) ($row[6] ?? ''));
+        $statusRaw = mb_strtolower(trim((string) ($row[7] ?? '')));
 
         $work = $works->get($participationId);
         if (! $work) {
@@ -1368,9 +1486,198 @@ class ResultController extends Controller
 
             return;
         }
+        if ($statusRaw !== '' && ! isset(self::STATUS_MAP[$statusRaw])) {
+            $result->fail($line, "неизвестный статус «{$row[7]}»", $row);
+
+            return;
+        }
 
         $work->primary_score = $score;
         $work->question_scores = null;
+        if ($statusRaw !== '') {
+            $work->result_status = self::STATUS_MAP[$statusRaw];
+        }
+        $work->save();
+        $result->updated++;
+    }
+
+    /** Выгрузка шаблона массового ввода апелляций МЭ (по ID участия; статус — если решение вынесено). */
+    public function appealTemplateXlsx(Request $request, Olympiad $olympiad): StreamedResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateIds = $request->user()->municipalAteScope();
+
+        $participants = HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds)
+            ->with(['student:id,fio,real_grade,school_id', 'student.school:id,short_name'])
+            ->select('human_olympiad.*')
+            ->orderBy('human_olympiad.participation_grade')->orderBy('students.fio')
+            ->get();
+
+        $olympiad->loadMissing('academicYear');
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Апелляции МЭ');
+        $header = self::APPEAL_TEMPLATE_HEADER;
+        $headerRow = OlympiadImportHeader::write($sheet, $olympiad);
+        foreach ($header as $i => $title) {
+            $sheet->setCellValue(Coordinate::stringFromColumnIndex($i + 1).$headerRow, $title);
+        }
+
+        $row = $headerRow + 1;
+        foreach ($participants as $h) {
+            $s = $h->student;
+            $values = [
+                $h->id, $s?->fio, $s?->school?->short_name, $s?->real_grade, $h->participation_grade,
+                $this->numRu($olympiad->maxScoreFor((int) $h->participation_grade)), $this->numRu($h->primary_score),
+                $this->numRu($h->appeal_addition), $this->numRu($h->final_score), self::STATUS_RU[$h->result_status] ?? '',
+            ];
+            foreach ($values as $i => $v) {
+                $sheet->setCellValueExplicit(Coordinate::stringFromColumnIndex($i + 1).$row, (string) $v, DataType::TYPE_STRING);
+            }
+            $row++;
+        }
+        foreach ($header as $i => $title) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i + 1))->setAutoSize(true);
+        }
+
+        $filename = 'apellyacii_ME_'.preg_replace('/[^\w\-]+/u', '_', $olympiad->subject).'.xlsx';
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            (new Xlsx($spreadsheet))->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /** Запуск фонового импорта апелляций МЭ по ID участия (по частям, с прогресс-баром). */
+    public function importAppeals(Request $request, Olympiad $olympiad, ChunkedImportService $importer): JsonResponse
+    {
+        abort_unless($olympiad->stage === 'municipal', 404);
+        $ateId = $request->user()->ate_id;
+
+        if (! $olympiad->isEntryOpenForAte($ateId, 'appeal')) {
+            return response()->json(['errors' => ['file' => ['Ввод добавочных баллов по апелляциям закрыт.']]], 422);
+        }
+
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt,xlsx,ods', 'max:20480']]);
+
+        $file = $request->file('file');
+        $parsed = OlympiadImportHeader::parse(
+            SpreadsheetReader::rows($file->getRealPath(), $file->getClientOriginalExtension())
+        );
+        if ($parsed['code'] !== null && $parsed['code'] !== $olympiad->id) {
+            $other = Olympiad::find($parsed['code']);
+            $name = $other ? "«{$other->subject}»" : "#{$parsed['code']}";
+
+            return response()->json(['errors' => ['file' => ["Файл от другой олимпиады ({$name}), а вы загружаете в «{$olympiad->subject}». Скачайте шаблон нужной олимпиады."]]], 422);
+        }
+
+        $import = $importer->start(
+            $request->user()->id, 'municipal_appeals', 'Апелляции МЭ',
+            ['olympiad_id' => $olympiad->id, 'line_offset' => $parsed['offset']],
+            self::APPEAL_TEMPLATE_HEADER, $parsed['data'],
+        );
+
+        return response()->json(['id' => $import->id, 'total' => $import->total]);
+    }
+
+    /** Обработка очередной части строк импорта апелляций МЭ. */
+    public function importAppealsChunk(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): JsonResponse
+    {
+        $this->authorizeAppealImport($request, $bulkImport);
+
+        $olympiad = Olympiad::findOrFail($bulkImport->context['olympiad_id']);
+        $ateIds = $request->user()->municipalAteScope();
+
+        $works = HumanOlympiad::query()
+            ->where('human_olympiad.olympiad_id', $olympiad->id)
+            ->join('students', 'students.id', '=', 'human_olympiad.student_id')
+            ->join('schools', 'schools.id', '=', 'students.school_id')
+            ->whereIn('schools.ate_id', $ateIds)
+            ->select('human_olympiad.*')
+            ->get()
+            ->keyBy('id');
+
+        $progress = $importer->processChunk($bulkImport, function (array $row, int $line, ImportResult $result) use ($olympiad, $works) {
+            $this->applyMunicipalAppealRow($row, $line, $olympiad, $works, $result);
+        });
+
+        return response()->json($progress);
+    }
+
+    /** Выгрузка строк с ошибками фонового импорта апелляций МЭ. */
+    public function importAppealsErrors(Request $request, BulkImport $bulkImport, ChunkedImportService $importer): StreamedResponse
+    {
+        $this->authorizeAppealImport($request, $bulkImport);
+
+        return $importer->errorsCsv($bulkImport);
+    }
+
+    private function authorizeAppealImport(Request $request, BulkImport $bulkImport): void
+    {
+        abort_unless($bulkImport->type === 'municipal_appeals' && $bulkImport->user_id === $request->user()->id, 403);
+    }
+
+    /** Обработка одной строки импорта апелляции МЭ (по ID участия; колонки: см. APPEAL_TEMPLATE_HEADER). */
+    private function applyMunicipalAppealRow(array $row, int $line, Olympiad $olympiad, $works, ImportResult $result): void
+    {
+        $idRaw = trim((string) ($row[0] ?? ''));
+        if (! preg_match('/^\d+$/', $idRaw)) {
+            return;
+        }
+        $participationId = (int) $idRaw;
+        $rawAddition = trim((string) ($row[7] ?? ''));
+        // Индекс 8 — «Итог» (справочный, не читается при импорте); статус — индекс 9.
+        $statusRaw = mb_strtolower(trim((string) ($row[9] ?? '')));
+
+        $work = $works->get($participationId);
+        if (! $work) {
+            $result->fail($line, 'участие не найдено в области видимости', $row);
+
+            return;
+        }
+        // Строка может нести только статус (без добавки по апелляции) — это допустимо и должно
+        // обновляться наравне со строками с добавкой; пропускаем только полностью пустые строки.
+        if ($rawAddition === '' && $statusRaw === '') {
+            $result->skipped++;
+
+            return;
+        }
+        if ($statusRaw !== '' && $work->primary_score === null) {
+            $result->fail($line, 'нельзя присвоить статус без первичного балла', $row);
+
+            return;
+        }
+        if ($statusRaw !== '' && ! isset(self::STATUS_MAP[$statusRaw])) {
+            $result->fail($line, "неизвестный статус «{$row[9]}»", $row);
+
+            return;
+        }
+
+        if ($rawAddition !== '') {
+            $norm = str_replace(',', '.', $rawAddition);
+            if (! is_numeric($norm) || (float) $norm < 0) {
+                $result->fail($line, "некорректная добавка «{$rawAddition}»", $row);
+
+                return;
+            }
+            $addition = round((float) $norm, 2);
+            $max = $olympiad->maxScoreFor((int) $work->participation_grade);
+            if ($max !== null && ((float) $work->primary_score + $addition) > $max) {
+                $result->fail($line, "итоговый балл превышает максимальный ({$max}) для класса {$work->participation_grade}", $row);
+
+                return;
+            }
+            $work->appeal_addition = $addition;
+            $work->question_appeals = null;
+        }
+        if ($statusRaw !== '') {
+            $work->result_status = self::STATUS_MAP[$statusRaw];
+        }
         $work->save();
         $result->updated++;
     }
@@ -1386,6 +1693,15 @@ class ResultController extends Controller
 
         if (! $olympiad->isEntryOpenForAte($ateId, 'primary')) {
             return back()->withErrors(['primary_score' => 'Ввод первичных результатов закрыт.']);
+        }
+
+        // Статус на МЭ порогами не считается — координатор проставляет его сам, сравнивая
+        // баллы внутри нужной группы (например, по профилю/виду практики для технологии).
+        if ($request->has('result_status')) {
+            $validatedStatus = $request->validate([
+                'result_status' => ['nullable', Rule::in(['participant', 'prize_winner', 'winner'])],
+            ]);
+            $participation->result_status = $validatedStatus['result_status'] ?? 'participant';
         }
 
         $max = $olympiad->maxScoreFor((int) $participation->participation_grade);
@@ -1429,6 +1745,14 @@ class ResultController extends Controller
 
         if (! $olympiad->isEntryOpenForAte($ateId, 'appeal')) {
             return back()->withErrors(['appeal_addition' => 'Ввод добавочных баллов по апелляциям закрыт.']);
+        }
+
+        // Статус на МЭ порогами не считается — координатор проставляет его сам после рассмотрения апелляции.
+        if ($request->has('result_status')) {
+            $validatedStatus = $request->validate([
+                'result_status' => ['nullable', Rule::in(['participant', 'prize_winner', 'winner'])],
+            ]);
+            $participation->result_status = $validatedStatus['result_status'] ?? 'participant';
         }
 
         $max = $olympiad->maxScoreFor((int) $participation->participation_grade);

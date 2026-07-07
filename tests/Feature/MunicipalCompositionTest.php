@@ -267,6 +267,49 @@ class MunicipalCompositionTest extends TestCase
         $response = $this->actingAs($coordinator)->get(route('municipal.results.invited', $municipal));
         $response->assertOk();
         $response->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $header = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet()->toArray()[0];
+        @unlink($tmp);
+
+        $this->assertSame(['№', 'ФИО', 'Дата рождения', 'Школа', 'Класс', 'Класс участия'], $header);
+        $this->assertNotContains('Основание', $header);
+        $this->assertNotContains('Из другого региона', $header);
+    }
+
+    public function test_invited_list_xlsx_includes_profile_and_practice_for_technology(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $municipal = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned',
+        ]);
+        $student = $this->student($school, 9);
+        HumanOlympiad::create([
+            'student_id' => $student->id, 'olympiad_id' => $municipal->id, 'participation_grade' => 9,
+            'result_status' => 'participant', 'inclusion_basis' => 'school_stage',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.1 Практика по дереву',
+        ]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $response = $this->actingAs($coordinator)->get(route('municipal.results.invited', $municipal));
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $rows = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet()->toArray();
+        @unlink($tmp);
+
+        $this->assertSame(
+            ['№', 'ФИО', 'Дата рождения', 'Школа', 'Класс', 'Класс участия', 'Профиль/Направление', 'Вид практики'],
+            $rows[0],
+        );
+        $this->assertSame('Техника, технологии и техническое творчество', $rows[1][6]);
+        $this->assertSame('1.1 Практика по дереву', $rows[1][7]);
     }
 
     public function test_manual_add_rejects_student_from_other_ate(): void
@@ -397,5 +440,187 @@ class MunicipalCompositionTest extends TestCase
             ->assertSessionHasErrors('participation');
 
         $this->assertDatabaseHas('human_olympiad', ['id' => $h->id]);
+    }
+
+    public function test_compose_from_stages_copies_teacher_and_tech_fields(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+
+        $she = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'school', 'grades' => '9', 'date_held' => '2025-11-01', 'published_at' => now(),
+        ]);
+        $municipal = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'planned',
+        ]);
+
+        $winner = $this->student($school, 9);
+        HumanOlympiad::create([
+            'student_id' => $winner->id, 'olympiad_id' => $she->id, 'participation_grade' => 9,
+            'result_status' => 'winner', 'teacher_name' => 'Петров П.П.', 'teacher_workplace' => 'Школа №5',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.1 Практика по дереву',
+        ]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)->post(route('municipal.results.compose', $municipal))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $winner->id, 'olympiad_id' => $municipal->id,
+            'teacher_name' => 'Петров П.П.', 'teacher_workplace' => 'Школа №5',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.1 Практика по дереву',
+        ]);
+    }
+
+    public function test_compose_top_n_copies_teacher_and_tech_fields(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+
+        $she = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'school', 'grades' => '9', 'date_held' => '2025-11-01', 'published_at' => now(),
+        ]);
+        $mun = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01',
+        ]);
+
+        $top = $this->student($school, 9);
+        HumanOlympiad::create([
+            'student_id' => $top->id, 'olympiad_id' => $she->id, 'participation_grade' => 9,
+            'score' => 90, 'result_status' => 'participant',
+            'teacher_name' => 'Сидорова С.С.', 'teacher_workplace' => 'Школа №2',
+            'profile' => 'Культура дома, дизайн и технологии', 'practice_types' => '2.1 Практика по шитью',
+        ]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.compose-top-n', $mun), ['groups' => [['classes' => [9], 'n' => 1]]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $top->id, 'olympiad_id' => $mun->id,
+            'teacher_name' => 'Сидорова С.С.', 'teacher_workplace' => 'Школа №2',
+            'profile' => 'Культура дома, дизайн и технологии', 'practice_types' => '2.1 Практика по шитью',
+        ]);
+    }
+
+    public function test_compose_top_n_per_school_copies_teacher_and_tech_fields(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+
+        $she = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'school', 'grades' => '9', 'date_held' => '2025-11-01', 'published_at' => now(),
+        ]);
+        $mun = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '9', 'date_held' => '2025-12-01',
+        ]);
+
+        $top = $this->student($school, 9);
+        HumanOlympiad::create([
+            'student_id' => $top->id, 'olympiad_id' => $she->id, 'participation_grade' => 9,
+            'score' => 90, 'result_status' => 'participant',
+            'teacher_name' => 'Кузнецов К.К.', 'teacher_workplace' => 'Школа №3',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.2 Практика по металлу',
+        ]);
+
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.compose-top-n-school', $mun), ['groups' => [['classes' => [9], 'n' => 1]]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $top->id, 'olympiad_id' => $mun->id,
+            'teacher_name' => 'Кузнецов К.К.', 'teacher_workplace' => 'Школа №3',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.2 Практика по металлу',
+        ]);
+    }
+
+    public function test_manual_add_accepts_teacher_and_tech_fields(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $student = $this->student($school, 9);
+        $municipal = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '7,8,9,10,11', 'date_held' => '2025-12-01', 'status' => 'planned',
+        ]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)->post(route('municipal.results.store', $municipal), [
+            'student_id' => $student->id, 'participation_grade' => 9,
+            'teacher_name' => 'Фёдоров Ф.Ф.', 'teacher_workplace' => 'Школа №9',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.1 Практика',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $student->id, 'olympiad_id' => $municipal->id,
+            'teacher_name' => 'Фёдоров Ф.Ф.', 'teacher_workplace' => 'Школа №9',
+            'profile' => 'Техника, технологии и техническое творчество', 'practice_types' => '1.1 Практика',
+        ]);
+    }
+
+    public function test_manual_add_ignores_profile_for_non_technology_subject(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Физика', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $student = $this->student($school, 9);
+        $municipal = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Физика', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '7,8,9,10,11', 'date_held' => '2025-12-01', 'status' => 'planned',
+        ]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)->post(route('municipal.results.store', $municipal), [
+            'student_id' => $student->id, 'participation_grade' => 9,
+            'teacher_name' => 'Фёдоров Ф.Ф.', 'profile' => 'Не должно сохраниться',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $student->id, 'olympiad_id' => $municipal->id,
+            'teacher_name' => 'Фёдоров Ф.Ф.', 'profile' => null,
+        ]);
+    }
+
+    public function test_external_participant_accepts_teacher_and_tech_fields(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        $subject = Subject::create(['name' => 'Труд (технология)', 'is_active' => true]);
+        $ate = Ate::create(['ate_code' => '01', 'name' => 'АТЕ', 'type' => 'isolated']);
+        $school = $this->school($ate);
+        $municipal = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'subject_id' => $subject->id,
+            'stage' => 'municipal', 'grades' => '9,10,11', 'date_held' => '2025-12-01', 'status' => 'planned',
+        ]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)->post(route('municipal.results.external', $municipal), [
+            'school_id' => $school->id, 'fio' => 'Гостев Иван', 'birth_date' => '2009-05-01',
+            'gender' => 'male', 'real_grade' => 9, 'participation_grade' => 9,
+            'teacher_name' => 'Николаев Н.Н.', 'teacher_workplace' => 'Гимназия №1',
+            'profile' => 'Культура дома, дизайн и технологии', 'practice_types' => '2.2 Практика',
+        ])->assertSessionHasNoErrors();
+
+        $student = Student::where('fio', 'Гостев Иван')->first();
+        $this->assertDatabaseHas('human_olympiad', [
+            'student_id' => $student->id, 'olympiad_id' => $municipal->id,
+            'teacher_name' => 'Николаев Н.Н.', 'teacher_workplace' => 'Гимназия №1',
+            'profile' => 'Культура дома, дизайн и технологии', 'practice_types' => '2.2 Практика',
+        ]);
     }
 }

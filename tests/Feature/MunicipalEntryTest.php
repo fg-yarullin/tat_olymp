@@ -12,6 +12,7 @@ use App\Models\School;
 use App\Models\Student;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class MunicipalEntryTest extends TestCase
@@ -76,6 +77,25 @@ class MunicipalEntryTest extends TestCase
                 ->component('Municipal/Results/Entry')
                 ->where('participants.total', 1)
                 ->where('olympiad.entry_open', true));
+    }
+
+    public function test_entry_page_exposes_profile_and_practice_for_technology(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Труд (технология)', 'stage' => 'municipal',
+            'grades' => '9', 'date_held' => '2025-12-01', 'status' => 'grading', 'results_deadline' => now()->addDay(),
+        ]);
+        $participation = $this->participant($school, $olympiad);
+        $participation->update(['profile' => 'Направление А', 'practice_types' => '1.1 Практика']);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)->get(route('municipal.results.entry', $olympiad))
+            ->assertInertia(fn (\Inertia\Testing\AssertableInertia $p) => $p
+                ->where('olympiad.is_technology', true)
+                ->where('participants.data.0.profile', 'Направление А')
+                ->where('participants.data.0.practice_types', '1.1 Практика'));
     }
 
     public function test_composition_closes_when_primary_entry_closed(): void
@@ -403,5 +423,232 @@ class MunicipalEntryTest extends TestCase
         $fresh = $p->fresh();
         $this->assertNull($fresh->primary_score);
         $this->assertEmpty($fresh->question_scores ?? []);
+    }
+
+    private function csv(array $lines): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'imp').'.csv';
+        file_put_contents($path, "\xEF\xBB\xBF".implode("\n", $lines));
+
+        return new UploadedFile($path, 'r.csv', 'text/csv', null, true);
+    }
+
+    /** Строка импорта первичных баллов МЭ (SCORE_TEMPLATE_HEADER: ...Балл, Статус). */
+    private function scoreImportRow(int $id, string $score, string $status = ''): string
+    {
+        $row = array_fill(0, 8, '');
+        $row[0] = (string) $id;
+        $row[6] = $score;
+        $row[7] = $status;
+
+        return implode(';', $row);
+    }
+
+    /** Строка импорта апелляций МЭ (APPEAL_TEMPLATE_HEADER: ...Первичный балл, Апелляция, Итог, Статус). */
+    private function appealImportRow(int $id, string $addition, string $status = ''): string
+    {
+        $row = array_fill(0, 10, '');
+        $row[0] = (string) $id;
+        $row[7] = $addition;
+        $row[9] = $status;
+
+        return implode(';', $row);
+    }
+
+    private function runScoreImport(User $coordinator, Olympiad $olympiad, UploadedFile $file): array
+    {
+        $this->actingAs($coordinator);
+        $start = $this->post(route('municipal.results.import-scores', $olympiad), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('municipal.results.import-scores.chunk', $start['id']))->json();
+        }
+
+        return $prog;
+    }
+
+    private function runAppealImport(User $coordinator, Olympiad $olympiad, UploadedFile $file): array
+    {
+        $this->actingAs($coordinator);
+        $start = $this->post(route('municipal.results.import-appeals', $olympiad), ['file' => $file])->json();
+        $prog = ['done' => false];
+        while (! $prog['done']) {
+            $prog = $this->post(route('municipal.results.import-appeals.chunk', $start['id']))->json();
+        }
+
+        return $prog;
+    }
+
+    public function test_coordinator_sets_status_manually_with_primary_score(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $participation = $this->participant($school, $olympiad);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.primary', $participation), ['primary_score' => '40', 'result_status' => 'prize_winner'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('prize_winner', $participation->fresh()->result_status);
+
+        // Неизвестный статус отклоняется.
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.primary', $participation), ['primary_score' => '40', 'result_status' => 'bogus'])
+            ->assertSessionHasErrors('result_status');
+    }
+
+    public function test_coordinator_sets_status_manually_with_appeal(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Физика', 'stage' => 'municipal', 'grades' => '9',
+            'date_held' => '2025-12-01', 'status' => 'grading',
+            'results_deadline' => now()->subHour(), 'final_results_deadline' => now()->addDay(),
+        ]);
+        $olympiad->maxScores()->create(['grade' => 9, 'max_score' => 50]);
+        $participation = $this->participant($school, $olympiad);
+        $participation->update(['primary_score' => 30, 'result_status' => 'participant']);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.appeal', $participation), ['appeal_addition' => '5', 'result_status' => 'winner'])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $participation->fresh();
+        $this->assertSame('winner', $fresh->result_status);
+        $this->assertEqualsWithDelta(35, (float) $fresh->final_score, 0.001);
+    }
+
+    public function test_coordinator_imports_primary_scores_with_status(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $p1 = $this->participant($school, $olympiad);
+        $p2 = $this->participant($school, $olympiad);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $csv = $this->csv([
+            'ID;ФИО;Школа;Класс;Класс участия;Макс. балл;Балл;Статус',
+            $this->scoreImportRow($p1->id, '45', 'призер'),
+            $this->scoreImportRow($p2->id, '20', ''),
+        ]);
+
+        $prog = $this->runScoreImport($coordinator, $olympiad, $csv);
+        $this->assertSame(2, $prog['updated']);
+
+        $this->assertSame('prize_winner', $p1->fresh()->result_status);
+        $this->assertSame('participant', $p2->fresh()->result_status); // статус не указан — не меняется
+    }
+
+    public function test_score_import_rejects_unknown_status(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year);
+        $p = $this->participant($school, $olympiad);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $csv = $this->csv([
+            'ID;ФИО;Школа;Класс;Класс участия;Макс. балл;Балл;Статус',
+            $this->scoreImportRow($p->id, '45', 'непонятно'),
+        ]);
+
+        $prog = $this->runScoreImport($coordinator, $olympiad, $csv);
+        $this->assertSame(1, $prog['failed']);
+        $this->assertNull($p->fresh()->primary_score);
+    }
+
+    public function test_coordinator_imports_appeals_with_addition_and_status(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Физика', 'stage' => 'municipal', 'grades' => '9',
+            'date_held' => '2025-12-01', 'status' => 'grading',
+            'results_deadline' => now()->subHour(), 'final_results_deadline' => now()->addDay(),
+        ]);
+        $olympiad->maxScores()->create(['grade' => 9, 'max_score' => 50]);
+        $p1 = $this->participant($school, $olympiad);
+        $p1->update(['primary_score' => 30]);
+        $p2 = $this->participant($school, $olympiad);
+        $p2->update(['primary_score' => 20]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $csv = $this->csv([
+            'ID;ФИО;Школа;Класс;Класс участия;Макс. балл;Первичный балл;Апелляция;Итог;Статус',
+            $this->appealImportRow($p1->id, '5', 'победитель'),
+            $this->appealImportRow($p2->id, '0', 'участник'),
+        ]);
+
+        $prog = $this->runAppealImport($coordinator, $olympiad, $csv);
+        $this->assertSame(2, $prog['updated']);
+
+        $fresh1 = $p1->fresh();
+        $this->assertEqualsWithDelta(5, (float) $fresh1->appeal_addition, 0.001);
+        $this->assertEqualsWithDelta(35, (float) $fresh1->final_score, 0.001);
+        $this->assertSame('winner', $fresh1->result_status);
+        $this->assertSame('participant', $p2->fresh()->result_status);
+    }
+
+    public function test_appeal_import_updates_status_for_all_with_primary_score_even_without_addition(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = Olympiad::create([
+            'academic_year_id' => $year->id, 'subject' => 'Физика', 'stage' => 'municipal', 'grades' => '9',
+            'date_held' => '2025-12-01', 'status' => 'grading',
+            'results_deadline' => now()->subHour(), 'final_results_deadline' => now()->addDay(),
+        ]);
+        $olympiad->maxScores()->create(['grade' => 9, 'max_score' => 50]);
+        // Никто не подавал апелляцию (колонка «Апелляция» пуста), но статус в шаблоне указан у всех.
+        $p1 = $this->participant($school, $olympiad);
+        $p1->update(['primary_score' => 45]);
+        $p2 = $this->participant($school, $olympiad);
+        $p2->update(['primary_score' => 20]);
+        $noScore = $this->participant($school, $olympiad); // без первичного балла — статус не проставить
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $csv = $this->csv([
+            'ID;ФИО;Школа;Класс;Класс участия;Макс. балл;Первичный балл;Апелляция;Итог;Статус',
+            $this->appealImportRow($p1->id, '', 'победитель'),
+            $this->appealImportRow($p2->id, '', 'участник'),
+            $this->appealImportRow($noScore->id, '', 'призер'),
+        ]);
+
+        $prog = $this->runAppealImport($coordinator, $olympiad, $csv);
+        $this->assertSame(2, $prog['updated']);
+        $this->assertSame(1, $prog['failed']);
+
+        $fresh1 = $p1->fresh();
+        $this->assertSame('winner', $fresh1->result_status);
+        $this->assertNull($fresh1->appeal_addition); // добавка не указывалась — не тронута
+        $this->assertSame('participant', $p2->fresh()->result_status);
+        $this->assertSame('participant', $noScore->fresh()->result_status); // не изменился
+    }
+
+    public function test_appeal_import_blocked_when_appeal_closed(): void
+    {
+        $year = AcademicYear::create(['name' => '2025/2026', 'status' => 'current']);
+        [$ate, $school] = $this->ateSchool();
+        $olympiad = $this->municipal(now()->addDay(), $year); // первичный ввод открыт, апелляция ещё не наступила
+        $p = $this->participant($school, $olympiad);
+        $p->update(['primary_score' => 30]);
+        $coordinator = User::factory()->create(['role' => UserRole::MunicipalCoordinator, 'ate_id' => $ate->id, 'is_active' => true]);
+
+        $csv = $this->csv([
+            'ID;ФИО;Школа;Класс;Класс участия;Макс. балл;Первичный балл;Апелляция;Итог;Статус',
+            $this->appealImportRow($p->id, '5', ''),
+        ]);
+
+        $this->actingAs($coordinator)
+            ->post(route('municipal.results.import-appeals', $olympiad), ['file' => $csv])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
+
+        $this->assertNull($p->fresh()->appeal_addition);
     }
 }

@@ -47,11 +47,14 @@ function countdownState(open, deadlineIso, now, closedLabel) {
  * Живой обратный отсчёт до закрытия ввода результатов.
  * size="sm" — компактный бейдж (строки списков); size="lg" — крупный блок с секундами
  * (страница ввода — чтобы оператор явно видел остаток времени).
+ * stack — в size="sm" переносит слово «осталось» на отдельную строку над счётчиком
+ * (компактнее по ширине для таблиц с несколькими счётчиками в ячейке).
  */
-export default function Countdown({ open, deadline, size = 'sm', closedLabel = 'ввод закрыт' }) {
+export default function Countdown({ open, deadline, size = 'sm', closedLabel = 'ввод закрыт', stack = false }) {
     const now = useNow();
     const { tone, text } = countdownState(open, deadline, now, closedLabel);
     const cls = TONE[tone];
+    const isCounting = tone === 'ok' || tone === 'warn' || tone === 'urgent';
 
     if (size === 'lg') {
         return (
@@ -69,9 +72,18 @@ export default function Countdown({ open, deadline, size = 'sm', closedLabel = '
         );
     }
 
+    if (stack && isCounting) {
+        return (
+            <span className={`inline-block rounded-full px-2 py-1 text-center text-xs font-medium leading-tight ${cls.badge}`}>
+                <span className="block">осталось</span>
+                <span className="block whitespace-nowrap tabular-nums">{text}</span>
+            </span>
+        );
+    }
+
     return (
         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium leading-tight ${cls.badge}`}>
-            {tone === 'ok' || tone === 'warn' || tone === 'urgent' ? `осталось ${text}` : text}
+            {isCounting ? `осталось ${text}` : text}
         </span>
     );
 }
